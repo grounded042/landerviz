@@ -1,0 +1,6 @@
+.DS_Store
+.direnv/
+/build/
+/result
+/result-*
+/zsa_moonlander_*_coding_source.zip

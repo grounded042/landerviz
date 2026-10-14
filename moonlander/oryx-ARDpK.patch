@@ -1,0 +1,91 @@
+--- a/config.h
++++ b/config.h
+@@ -1,6 +1,9 @@
+ #define USB_SUSPEND_WAKEUP_DELAY 0
+ #define SERIAL_NUMBER "z9wlG/ARDpK"
+ #define LAYER_STATE_8BIT
+ 
+ #define RGB_MATRIX_STARTUP_SPD 60
++
++// Cap generated QMK effects as well as frames received from LanderViz.
++#define RGB_MATRIX_MAXIMUM_BRIGHTNESS 175
+ 
+--- a/keymap.c
++++ b/keymap.c
+@@ -1,6 +1,7 @@
+ #include QMK_KEYBOARD_H
+ #include "version.h"
+ #include "i18n.h"
++#include "landerviz.h"
+ #define MOON_LED_LEVEL LED_LEVEL
+ #ifndef ZSA_SAFE_RANGE
+ #define ZSA_SAFE_RANGE SAFE_RANGE
+@@ -100,9 +101,7 @@ void set_layer_color(int layer) {
+ }
+ 
+ bool rgb_matrix_indicators_user(void) {
+-  if (rawhid_state.rgb_control) {
+-      return false;
+-  }
++  if (landerviz_render()) { return false; }
+   if (!keyboard_config.disable_layer_led) { 
+     switch (biton32(layer_state)) {
+       case 0:
+@@ -226,35 +225,23 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+     break;
+ 
+     case RGB_SLD:
+-        if (rawhid_state.rgb_control) {
+-            return false;
+-        }
+         if (record->event.pressed) {
+             rgblight_mode(1);
+         }
+         return false;
+     case HSV_0_255_255:
+-        if (rawhid_state.rgb_control) {
+-            return false;
+-        }
+         if (record->event.pressed) {
+             rgblight_mode(1);
+             rgblight_sethsv(0,255,255);
+         }
+         return false;
+     case HSV_86_255_128:
+-        if (rawhid_state.rgb_control) {
+-            return false;
+-        }
+         if (record->event.pressed) {
+             rgblight_mode(1);
+             rgblight_sethsv(86,255,128);
+         }
+         return false;
+     case HSV_172_255_255:
+-        if (rawhid_state.rgb_control) {
+-            return false;
+-        }
+         if (record->event.pressed) {
+             rgblight_mode(1);
+             rgblight_sethsv(172,255,255);
+--- a/rules.mk
++++ b/rules.mk
+@@ -1,6 +1,8 @@
+ CONSOLE_ENABLE = no
+ COMMAND_ENABLE = no
+-ORYX_ENABLE = yes
++ORYX_ENABLE = no
++RAW_ENABLE = yes
+-RGB_MATRIX_CUSTOM_KB = yes
++RGB_MATRIX_CUSTOM_KB = no
+ TAP_DANCE_ENABLE = yes
+ SPACE_CADET_ENABLE = no
++SRC += landerviz.c
+--- a/keymap.json
++++ b/keymap.json
+@@ -1,6 +1,5 @@
+ {
+     "modules": [
+-        "zsa/oryx",
+         "zsa/defaults"
+     ]
+ }

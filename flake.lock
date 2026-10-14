@@ -1,0 +1,171 @@
+{
+  "nodes": {
+    "chibios": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1708197606,
+        "narHash": "sha256-e0K+zXbTbfh/kP7JbTS624gGhtrKSg56yOfkq2salA8=",
+        "owner": "qmk",
+        "repo": "ChibiOS",
+        "rev": "be44b3305f9a9fe5f2f49a4e7b978db322dc463e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qmk",
+        "repo": "ChibiOS",
+        "rev": "be44b3305f9a9fe5f2f49a4e7b978db322dc463e",
+        "type": "github"
+      }
+    },
+    "chibios-contrib": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1712147964,
+        "narHash": "sha256-DHizIK4XWe3wnYC/MaeoQu+idL2lXApu7BxzcbchdYY=",
+        "owner": "qmk",
+        "repo": "ChibiOS-Contrib",
+        "rev": "77cb0a4f7589f89e724f5e6ecb1d76d514dd1212",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qmk",
+        "repo": "ChibiOS-Contrib",
+        "rev": "77cb0a4f7589f89e724f5e6ecb1d76d514dd1212",
+        "type": "github"
+      }
+    },
+    "lufa": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1661479795,
+        "narHash": "sha256-BCaLSOn9ksj0+gYNdiTkZqrgKbGEbWNxnxrh3TOpsOY=",
+        "owner": "qmk",
+        "repo": "lufa",
+        "rev": "549b97320d515bfca2f95c145a67bd13be968faa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qmk",
+        "repo": "lufa",
+        "rev": "549b97320d515bfca2f95c145a67bd13be968faa",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1791487292,
+        "narHash": "sha256-tqM7xDEsaeK1p6VvRygeZ9LkQRpUUkbRT02BHv6hnTM=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "8edc0c72e3a38faf5434e40d1f19431125fe4b30",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "pico-pio-usb": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784721691,
+        "narHash": "sha256-q4F7DVphs/KUBP9yGOEs967XCillnOVvKyMoJ+YbS0g=",
+        "owner": "sekigon-gonnoc",
+        "repo": "Pico-PIO-USB",
+        "rev": "5a37a66dc5d3fbe0ef3cdbeda923a757440f984f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "sekigon-gonnoc",
+        "repo": "Pico-PIO-USB",
+        "rev": "5a37a66dc5d3fbe0ef3cdbeda923a757440f984f",
+        "type": "github"
+      }
+    },
+    "qmk-modules": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786350189,
+        "narHash": "sha256-QrwXzNAtX7UakXz0jzL5R3vU1zbg6Juk9aO5daZN7+I=",
+        "owner": "zsa",
+        "repo": "qmk_modules",
+        "rev": "13890cd7856175de20798689d15ba6a46bf0c5c7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "zsa",
+        "repo": "qmk_modules",
+        "rev": "13890cd7856175de20798689d15ba6a46bf0c5c7",
+        "type": "github"
+      }
+    },
+    "qmk-printf": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1656536398,
+        "narHash": "sha256-RgeQ1Hg1j9DF4C2N/0Qh6iGAFg8vAY1NdbxFMCcMoGQ=",
+        "owner": "qmk",
+        "repo": "printf",
+        "rev": "c2e3b4e10d281e7f0f694d3ecbd9f320977288cc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qmk",
+        "repo": "printf",
+        "rev": "c2e3b4e10d281e7f0f694d3ecbd9f320977288cc",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "chibios": "chibios",
+        "chibios-contrib": "chibios-contrib",
+        "lufa": "lufa",
+        "nixpkgs": "nixpkgs",
+        "pico-pio-usb": "pico-pio-usb",
+        "qmk-modules": "qmk-modules",
+        "qmk-printf": "qmk-printf",
+        "tinyusb": "tinyusb",
+        "zsa-qmk": "zsa-qmk"
+      }
+    },
+    "tinyusb": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1735105509,
+        "narHash": "sha256-h2/OaZ5wVPUOg7uJ0b+J0Feq8V/NuhW2UWsUWpefgsc=",
+        "owner": "hathach",
+        "repo": "tinyusb",
+        "rev": "86ad6e56c1700e85f1c5678607a762cfe3aa2f47",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hathach",
+        "repo": "tinyusb",
+        "rev": "86ad6e56c1700e85f1c5678607a762cfe3aa2f47",
+        "type": "github"
+      }
+    },
+    "zsa-qmk": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788333284,
+        "narHash": "sha256-YMdZSfexFhynEBOMkawD35u6acVX6PnRoRXvdw28jfc=",
+        "owner": "zsa",
+        "repo": "qmk_firmware",
+        "rev": "93b2b9ec3368f86c5eb5a2e3f934049f8daef885",
+        "type": "github"
+      },
+      "original": {
+        "owner": "zsa",
+        "repo": "qmk_firmware",
+        "rev": "93b2b9ec3368f86c5eb5a2e3f934049f8daef885",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
