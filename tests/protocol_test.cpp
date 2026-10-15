@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cmath>
@@ -6,6 +7,7 @@
 
 #include "landerviz/audio_analysis.h"
 #include "landerviz/audio_buffer.h"
+#include "landerviz/effects.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/protocol.h"
 #include "landerviz/usb_bridge.h"
@@ -252,6 +254,85 @@ static void test_meter_level_gates_noise_without_reducing_normal_audio() {
     assert(std::fabs(lv_meter_level(0.1f) - lv_perceptual_level(0.1f)) < 0.0001f);
 }
 
+static void test_audio_activity_ignores_isolated_noise_spikes() {
+    lv_audio_activity_t activity{};
+
+    assert(!lv_audio_activity_update(&activity, true, 0));
+    assert(!lv_audio_activity_update(&activity, true, 16));
+    assert(!lv_audio_activity_update(&activity, false, 32));
+    assert(lv_audio_activity_update(&activity, true, 48));
+
+    assert(lv_audio_activity_update(&activity, false, 64));
+    assert(lv_audio_activity_update(&activity, false, 80));
+    assert(lv_audio_activity_update(&activity, false, 96));
+    assert(lv_audio_activity_update(&activity, true, 4000));
+    assert(lv_audio_activity_update(&activity, false, 4016));
+    assert(!lv_audio_activity_update(&activity, false, 5064));
+}
+
+static void test_audio_activity_requires_sustained_sound_to_leave_idle() {
+    lv_audio_activity_t activity{};
+
+    assert(!lv_audio_activity_update(&activity, true, 100));
+    assert(!lv_audio_activity_update(&activity, false, 116));
+    assert(!lv_audio_activity_update(&activity, false, 132));
+    assert(!lv_audio_activity_update(&activity, false, 148));
+
+    assert(!lv_audio_activity_update(&activity, true, 200));
+    assert(!lv_audio_activity_update(&activity, true, 216));
+    assert(!lv_audio_activity_update(&activity, false, 232));
+    assert(lv_audio_activity_update(&activity, true, 248));
+}
+
+static int rgb_brightness(lv_rgb_t color) {
+    return std::max((int)color.r, std::max((int)color.g, (int)color.b));
+}
+
+static void test_vu_rows_fill_smoothly_from_green_to_red() {
+    const auto empty_bottom = lv_vu_row_color(0.0f, 0, 5);
+    const auto full_bottom = lv_vu_row_color(1.0f, 0, 5);
+    const auto full_top = lv_vu_row_color(1.0f, 4, 5);
+    assert(rgb_brightness(empty_bottom) < rgb_brightness(full_bottom));
+    assert(full_bottom.g > full_bottom.r);
+    assert(full_top.r > full_top.g);
+
+    const auto half_leading = lv_vu_row_color(0.5f, 2, 5);
+    const auto half_unlit = lv_vu_row_color(0.5f, 3, 5);
+    assert(rgb_brightness(half_leading) > rgb_brightness(half_unlit));
+    assert(rgb_brightness(half_leading) < rgb_brightness(lv_vu_row_color(1.0f, 2, 5)));
+}
+
+static void test_keyboard_vu_is_sensitive_but_still_noise_gated() {
+    assert(lv_keyboard_vu_level(0.03f) == 0.0f);
+    assert(lv_keyboard_vu_level(0.04f) > lv_meter_level(0.04f));
+    assert(std::fabs(lv_keyboard_vu_level(0.04f) -
+                     lv_perceptual_level(0.04f)) < 0.0001f);
+}
+
+static void test_vu_smoothing_attacks_faster_than_it_releases() {
+    const float attack = lv_vu_smooth_level(0.0f, 1.0f);
+    const float release = lv_vu_smooth_level(1.0f, 0.0f);
+    assert(attack > 0.0f && attack < 1.0f);
+    assert(release > 0.0f && release < 1.0f);
+    assert(attack > 1.0f - release);
+
+    float level = 0.0f;
+    for (int frame = 0; frame < 20; ++frame) {
+        level = lv_vu_smooth_level(level, 0.8f);
+    }
+    assert(level > 0.79f && level <= 0.8f);
+}
+
+static void test_aurora_varies_across_layout_and_time() {
+    const auto left = lv_aurora_color(0.0f, 0.0f, 0);
+    const auto right = lv_aurora_color(11.0f, 0.0f, 0);
+    const auto later = lv_aurora_color(0.0f, 0.0f, 2000);
+    assert(rgb_brightness(left) >= 24);
+    assert(rgb_brightness(left) <= 150);
+    assert(std::memcmp(&left, &right, sizeof(left)) != 0);
+    assert(std::memcmp(&left, &later, sizeof(left)) != 0);
+}
+
 static void test_peak_hold_waits_then_decays_to_live_level() {
     lv_peak_hold_t peak{};
 
@@ -374,6 +455,12 @@ int main() {
     test_boosted_quiet_kick_creates_visible_envelope();
     test_perceptual_level_uses_decibel_scale_and_noise_floor();
     test_meter_level_gates_noise_without_reducing_normal_audio();
+    test_audio_activity_ignores_isolated_noise_spikes();
+    test_audio_activity_requires_sustained_sound_to_leave_idle();
+    test_vu_rows_fill_smoothly_from_green_to_red();
+    test_keyboard_vu_is_sensitive_but_still_noise_gated();
+    test_vu_smoothing_attacks_faster_than_it_releases();
+    test_aurora_varies_across_layout_and_time();
     test_peak_hold_waits_then_decays_to_live_level();
     test_usb_host_status_labels_show_furthest_stage();
     test_usb_status_display_holds_every_reached_milestone();

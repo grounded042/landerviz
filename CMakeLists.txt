@@ -22,6 +22,7 @@ add_subdirectory($ENV{PICO_PIO_USB_PATH} pico_pio_usb)
 add_executable(landerviz
   main.cpp
   src/audio_analysis.cpp
+  src/effects.cpp
   src/usb_bridge.cpp
   src/usb_status.cpp
   src/usb_descriptors.cpp

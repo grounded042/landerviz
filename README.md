@@ -191,7 +191,9 @@ level, so normal tolerance around the nominal 1.65 V bias does not appear as
 audio on the meters. Keyboard effects use a sensitive `-48 dBFS` logarithmic
 curve. LCD metering and silence detection add a `-30` to `-24 dBFS` soft noise
 gate, keeping the meter empty at the prototype's measured noise floor without
-reducing normal keyboard animation. `dBFS` means decibels relative to the
+reducing normal keyboard animation. Silence detection also requires three of
+four consecutive analysis frames to clear that gate, so isolated noise spikes
+do not prevent the aurora from starting. `dBFS` means decibels relative to the
 ADC's full-scale input.
 
 For the numbered five-pin stereo breakout selected for this prototype, the
@@ -200,15 +202,48 @@ detection switches, and pin 5 left/tip. Confirm that mapping with continuity
 mode before applying power, because generic breakout batches can change. Leave
 pins 3 and 4 disconnected.
 
+### Ground routing and noise checks
+
+The prototype uses two breadboard ground rails to keep noisy USB, keyboard,
+and LCD return current out of the sensitive audio wiring:
+
+- The audio rail connects the TRS sleeve, the bottom 100 kilohm resistor of
+  each bias divider, and one Pro Micro GND pin.
+- The digital rail connects USB-A GND, bulk-capacitor negative, LCD VSS, LCD
+  LED-, the contrast trimmer's ground end, the button, and the other Pro Micro
+  GND pin.
+
+Both Pro Micro GND pins are internally the same electrical node. This is
+`star-ground` routing: the two current paths meet at the controller instead of
+sharing a long breadboard rail. It does not electrically isolate the audio and
+USB systems.
+
+Solderless breadboard power rails are often split in the middle. With all power
+removed, use the meter's continuity or lowest resistance range to verify every
+ground point. First touch the probes together to learn their own resistance;
+each ground-to-GND reading should be close to that value, and no ground rail
+should read open. Never measure resistance on a powered circuit.
+
+During bring-up, an audible high-pitched whine appeared only with the TRS cable
+connected and cleared after unplugging and reconnecting the mixer's USB-C
+power. If it returns, treat mixer power and the audio/USB ground path as the
+first suspects. A short shielded cable can reduce radiated pickup, while a
+stereo transformer ground-loop isolator can break a persistent shared-ground
+loop; ordinary "directional" analog cables cannot provide that isolation.
+
 ## Firmware behavior
 
-The three v1 modes are:
+The four selectable modes are:
 
 - `SPECTRUM`: left audio drives the left keyboard half and right audio drives
   the right half; each half has bass at the outside and treble at the center,
   utility keys mirror the adjacent treble column, and thumbs pulse with bass;
 - `PULSE`: whole-board kick pulse with a slowly rotating hue;
-- `IDLE`: breathing blue wave, also used after five seconds of quiet.
+- `VU`: independent left/right meters that fill each keyboard half from green
+  at the bottom to red at the top, with partial-row brightness and smoothed
+  attack/release;
+- `IDLE`: slowly drifting blue, teal, green, and violet aurora, also used after
+  five seconds of quiet.
 
 The RP2040 targets 60 keyboard frames and 20 LCD refreshes per second.
 

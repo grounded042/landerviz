@@ -1,10 +1,11 @@
 // LanderViz — Moonlander audio visualizer firmware (v1)
 // Target: SparkFun Pro Micro RP2040, Raspberry Pi Pico SDK, C++17
 //
-// Implements the v1 shortlist from 2026-10-08:
+// Implements the audio visualization modes:
 //   - SPECTRUM: column analyzer, mirrored across the split
 //   - PULSE:    kick-driven whole-board breath, slow hue rotation
-//   - IDLE:     slow breathing wave when the mixer is silent
+//   - VU:       smoothed stereo bottom-to-top meters
+//   - IDLE:     slow aurora, also shown when the mixer is silent
 // Plus: QC1602A LCD (stereo VU + peak-hold + clip, mode/fps status),
 //       tactile mode button (short = next, long = previous).
 
@@ -21,6 +22,7 @@
 
 #include "landerviz/audio_analysis.h"
 #include "landerviz/audio_buffer.h"
+#include "landerviz/effects.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/usb_bridge.h"
 
@@ -50,8 +52,8 @@
 // Keeps LED current spikes inside what the Anker hub data port + bulk cap can do.
 #define BRIGHTNESS_CAP  175       // 0..255; never exceed the Moonlander's QMK cap
 
-enum class VizMode : uint8_t { SPECTRUM = 0, PULSE = 1, IDLE = 2, COUNT = 3 };
-static const char* const MODE_NAMES[] = { "SPECTRUM", "PULSE", "IDLE" };
+enum class VizMode : uint8_t { SPECTRUM = 0, PULSE = 1, VU = 2, IDLE = 3, COUNT = 4 };
+static const char* const MODE_NAMES[] = { "SPECTRUM", "PULSE", "VU", "IDLE" };
 
 // ---------------------------------------------------------------------------
 // Tiny RGB helpers
@@ -59,23 +61,6 @@ static const char* const MODE_NAMES[] = { "SPECTRUM", "PULSE", "IDLE" };
 
 using RGB = lv_rgb_t;
 static_assert(NUM_KEYS == LV_KEY_COUNT, "visualizer and transport key counts must match");
-
-// HSV (h 0..255, s/v 0..255) -> RGB. Integer math, no floats.
-static RGB hsv_to_rgb(uint8_t h, uint8_t s, uint8_t v) {
-    uint8_t region = h / 43;
-    uint8_t rem = (h - region * 43) * 6;
-    uint8_t p = (v * (255 - s)) >> 8;
-    uint8_t q = (v * (255 - ((s * rem) >> 8))) >> 8;
-    uint8_t t = (v * (255 - ((s * (255 - rem)) >> 8))) >> 8;
-    switch (region) {
-        case 0:  return {v, t, p};
-        case 1:  return {q, v, p};
-        case 2:  return {p, v, t};
-        case 3:  return {p, q, v};
-        case 4:  return {t, p, v};
-        default: return {v, p, q};
-    }
-}
 
 static RGB scale_rgb(RGB c, uint8_t k) {  // k 0..255
     return {(uint8_t)(((uint16_t)c.r * k + 127) / 255),
@@ -228,25 +213,23 @@ static bool adc_tick(struct repeating_timer*) {
 }
 
 static lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {};
-static bool  audio_present = false;
-static uint32_t last_sound_ms = 0;
+static lv_audio_activity_t audio_activity = {};
+static bool audio_present = false;
 
 static void analyze_frame(const uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N]) {
-    bool signal_present = false;
+    bool above_noise_gate = false;
     for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
         lv_analyze_channel(&audio[channel], samples[channel], AUDIO_INPUT_GAIN);
         // RMS is converted to approximate peak amplitude before applying the
         // meter's noise gate. Keyboard effects retain their more sensitive
         // visualization curve once real audio is present.
-        signal_present |= lv_meter_level(audio[channel].rms_level * 1.41421356f) > 0.0f;
+        above_noise_gate |=
+            lv_meter_level(audio[channel].rms_level * 1.41421356f) > 0.0f;
     }
 
-    if (signal_present) {
-        audio_present = true;
-        last_sound_ms = to_ms_since_boot(get_absolute_time());
-    } else if (to_ms_since_boot(get_absolute_time()) - last_sound_ms > 5000) {
-        audio_present = false;
-    }
+    const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+    audio_present =
+        lv_audio_activity_update(&audio_activity, above_noise_gate, now_ms);
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +255,8 @@ static void viz_spectrum(uint32_t now_ms) {
             uint8_t hue = (uint8_t)(visual_band * 42);  // red -> violet, outside -> split
             for (int r = 0; r < active_rows; r++) {
                 RGB col = (r < lit)
-                    ? hsv_to_rgb(hue, 255, 255)
-                    : hsv_to_rgb(hue, 255, 20);   // dim floor so the board never looks dead
+                    ? lv_hsv_to_rgb(hue, 255, 255)
+                    : lv_hsv_to_rgb(hue, 255, 20);   // dim floor so the board never looks dead
                 const int row = active_rows - 1 - r;
                 rendered[half][row][c] = col;
                 board_set(key_at(half, c, row, cols, rows), col);
@@ -299,7 +282,7 @@ static void viz_spectrum(uint32_t now_ms) {
         const float bass = lv_perceptual_level(
             fmaxf(audio[half].band_level[0], audio[half].band_level[1]));
         const uint8_t thumb_value = (uint8_t)(20.0f + bass * 235.0f);
-        const RGB thumb_color = hsv_to_rgb(0, 255, thumb_value);
+        const RGB thumb_color = lv_hsv_to_rgb(0, 255, thumb_value);
         for (int key = 0; key < 4; ++key) {
             board_set(lv_thumb_key_at(half, key), thumb_color);
         }
@@ -318,16 +301,65 @@ static void viz_pulse(uint32_t now_ms) {
         pulse_hue += (uint8_t)((now_ms - last_hue_ms) / 120);
         last_hue_ms = now_ms;
     }
-    RGB col = hsv_to_rgb(pulse_hue, 220, breath);
+    RGB col = lv_hsv_to_rgb(pulse_hue, 220, breath);
     for (int k = 0; k < NUM_KEYS; k++) board_set(k, col);
 }
 
+static void viz_vu(uint32_t now_ms) {
+    (void)now_ms;
+    static float displayed_levels[LV_AUDIO_CHANNEL_COUNT] = {};
+
+    for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
+        const float rms_peak = audio[half].rms_level * 1.41421356f;
+        const float target_level = lv_keyboard_vu_level(rms_peak);
+        displayed_levels[half] =
+            lv_vu_smooth_level(displayed_levels[half], target_level);
+        const float level = displayed_levels[half];
+        for (int col = 0; col < 6; ++col) {
+            const int row_count = lv_key_at(half, col, 4) >= 0 ? 5 : 4;
+            for (int row_from_bottom = 0; row_from_bottom < row_count;
+                 ++row_from_bottom) {
+                const int row = row_count - 1 - row_from_bottom;
+                board_set(lv_key_at(half, col, row),
+                          lv_vu_row_color(level, row_from_bottom, row_count));
+            }
+        }
+
+        for (int key = 0; key < 3; ++key) {
+            const int row_from_bottom = 2 - key;
+            board_set(lv_utility_key_at(half, key),
+                      lv_vu_row_color(level, row_from_bottom, 3));
+        }
+
+        const RGB thumb_color = lv_vu_row_color(level, 0, 5);
+        for (int key = 0; key < 4; ++key) {
+            board_set(lv_thumb_key_at(half, key), thumb_color);
+        }
+    }
+}
+
 static void viz_idle(uint32_t now_ms) {
-    // Slow sine wave rolling across the board; deep blue but clearly visible.
-    for (int k = 0; k < NUM_KEYS; k++) {
-        float ph = (float)now_ms / 2400.0f * 2.0f * 3.14159265f + k * 0.35f;
-        uint8_t v = (uint8_t)(50 + 60 * (0.5f + 0.5f * sinf(ph)));
-        board_set(k, {0, (uint8_t)(v/3), v});
+    for (int half = 0; half < 2; ++half) {
+        for (int row = 0; row < 5; ++row) {
+            for (int col = 0; col < 6; ++col) {
+                const float x = half == 0 ? (float)col : (float)(7 + col);
+                board_set(lv_key_at(half, col, row),
+                          lv_aurora_color(x, (float)row, now_ms));
+            }
+        }
+
+        const float inner_x = half == 0 ? 5.8f : 6.2f;
+        for (int key = 0; key < 3; ++key) {
+            board_set(lv_utility_key_at(half, key),
+                      lv_aurora_color(inner_x, 0.8f + key, now_ms));
+        }
+
+        for (int key = 0; key < 4; ++key) {
+            const float x = half == 0 ? 3.8f + key * 0.55f
+                                      : 8.2f - key * 0.55f;
+            board_set(lv_thumb_key_at(half, key),
+                      lv_aurora_color(x, 5.0f + (key & 1) * 0.35f, now_ms));
+        }
     }
 }
 
@@ -499,6 +531,7 @@ int main() {
                 switch (mode) {
                     case VizMode::SPECTRUM: viz_spectrum(now); break;
                     case VizMode::PULSE:    viz_pulse(now);    break;
+                    case VizMode::VU:       viz_vu(now);       break;
                     case VizMode::IDLE:     viz_idle(now);     break;
                     default: break;
                 }

@@ -69,6 +69,31 @@ float lv_meter_level(float linear_level) {
     return perceptual * soft_knee;
 }
 
+bool lv_audio_activity_update(lv_audio_activity_t *activity,
+                              bool above_noise_gate, uint32_t now_ms) {
+    activity->recent_frames =
+        (uint8_t)(((activity->recent_frames << 1) |
+                   (above_noise_gate ? 1u : 0u)) &
+                  0x0Fu);
+    if (activity->frames_seen < 4) ++activity->frames_seen;
+
+    uint8_t confirmed_frames = 0;
+    uint8_t recent = activity->recent_frames;
+    for (int frame = 0; frame < 4; ++frame) {
+        confirmed_frames += recent & 1u;
+        recent >>= 1;
+    }
+
+    if (activity->frames_seen == 4 && confirmed_frames >= 3) {
+        activity->active = true;
+        activity->last_confirmed_ms = now_ms;
+    } else if (activity->active &&
+               now_ms - activity->last_confirmed_ms >= 5000) {
+        activity->active = false;
+    }
+    return activity->active;
+}
+
 int lv_peak_hold_update(lv_peak_hold_t *peak, int live_level, uint32_t now_ms) {
     constexpr uint32_t hold_ms = 750;
     constexpr uint32_t release_ms = 3000;

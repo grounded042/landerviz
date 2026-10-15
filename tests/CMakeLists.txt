@@ -1,6 +1,7 @@
 add_executable(landerviz_protocol_test
   protocol_test.cpp
   ../src/audio_analysis.cpp
+  ../src/effects.cpp
   ../src/usb_status.cpp
 )
 target_include_directories(landerviz_protocol_test PRIVATE ../include)
