@@ -54,6 +54,7 @@ The generated Oryx keymap source is vendored as reviewable text under
 nix flake check
 nix build .#rp2040 -o result-rp2040
 nix build .#moonlander -o result-moonlander
+nix build .#preview -o result-preview
 ```
 
 Artifacts:
@@ -61,9 +62,39 @@ Artifacts:
 - `result-rp2040/landerviz.uf2` — Pro Micro RP2040 firmware
 - `result-moonlander/zsa_moonlander_reva_landerviz.bin` — Moonlander revision-A
   firmware based on Oryx layout `z9wlG`, revision `ARDpK`
+- `result-preview/bin/landerviz-preview` — development-only Mac visualizer
 
 `nix develop` provides the pinned build tools for manual CMake work. The actual
 build board name is `sparkfun_promicro`; the flake already supplies it.
+
+### Mac visualization preview
+
+The development-only preview uses the same C++ audio analyzer, visualization
+state, and Moonlander LED mapping as the RP2040 firmware. FFmpeg decodes MP3,
+WAV, FLAC, and other common audio files; SDL2 provides playback and draws all
+72 simulated keys. Neither dependency is included in the firmware.
+
+```sh
+nix run .#preview -- ~/Music/test-track.mp3
+nix run .#preview -- --demo
+nix run .#preview -- --fps 25 ~/Music/test-track.mp3
+nix run .#preview -- --travel-ms 110 ~/Music/test-track.mp3
+```
+
+The macOS package also includes a real application bundle. Opening it with no
+arguments starts the demo; use `--args` to play a local audio file:
+
+```sh
+open -n result-preview/LanderViz.app
+open -n result-preview/LanderViz.app --args --fps 30 "/absolute/path/song.mp3"
+```
+
+Use left/right or number keys 1–5 to change mode, space to pause, `R` to
+restart, `[`/`]` to change the simulated frame rate, comma/period to make FLOW
+slower/faster in 10 ms increments, and escape or `Q` to quit. The title bar
+shows the active mode, frame rate, and FLOW travel time. `--travel-ms N` sets
+the initial 50–1000 ms per-column travel time. `--frames N` exits after N
+rendered frames and is intended for automated smoke tests.
 
 Before flashing a Moonlander build, confirm the keyboard's hardware revision.
 ZSA's command-line flasher can accept the local file:

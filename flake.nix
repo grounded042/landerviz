@@ -125,6 +125,46 @@
           runHook postInstall
         '';
       };
+
+      preview = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-preview";
+        version = "0.1.0";
+        src = self;
+        nativeBuildInputs = [pkgs.makeWrapper pkgs.pkg-config];
+        buildInputs = [pkgs.SDL2];
+        dontConfigure = true;
+        buildPhase = ''
+          runHook preBuild
+          $CXX -std=c++17 -O2 -Wall -Wextra -Werror -Iinclude \
+            tools/preview.cpp src/audio_analysis.cpp src/effects.cpp src/visualizer.cpp \
+            $(pkg-config --cflags --libs sdl2) -o landerviz-preview
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          mkdir -p "$out/bin"
+          cp landerviz-preview "$out/bin/"
+          wrapProgram "$out/bin/landerviz-preview" \
+            --prefix PATH : ${nixpkgs.lib.makeBinPath [pkgs.ffmpeg]}
+          ${nixpkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+            app="$out/LanderViz.app/Contents"
+            mkdir -p "$app/MacOS"
+            cp tools/macos/Info.plist "$app/Info.plist"
+            substitute tools/macos/launch-preview.sh "$app/MacOS/LanderViz" \
+              --replace-fail '@preview@' "$out/bin/landerviz-preview"
+            chmod +x "$app/MacOS/LanderViz"
+          ''}
+          runHook postInstall
+        '';
+      };
+    });
+
+    apps = forAllSystems (system: {
+      preview = {
+        type = "app";
+        program = "${self.packages.${system}.preview}/bin/landerviz-preview";
+        meta.description = "Preview LanderViz effects with generated or recorded audio";
+      };
     });
 
     checks = forAllSystems (system: let
@@ -162,7 +202,10 @@
           pkgs.ninja
           pkgs.patch
           pkgs.picotool
+          pkgs.pkg-config
           pkgs.python3
+          pkgs.SDL2
+          pkgs.ffmpeg
         ];
         PICO_SDK_PATH = "${pkgs.pico-sdk}/lib/pico-sdk";
         PICO_PIO_USB_PATH = pico-pio-usb;
