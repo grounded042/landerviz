@@ -38,6 +38,7 @@ volatile uint32_t requested_generation = 0;
 uint32_t sending_generation = 0;
 uint8_t sending_frame_id = 0;
 uint8_t sending_chunk = LV_CHUNK_COUNT;
+volatile uint32_t completed_frame_count = 0;
 
 volatile uint8_t raw_device = 0;
 volatile uint8_t raw_instance = 0;
@@ -221,6 +222,10 @@ void usb_bridge_submit_frame(const lv_rgb_t frame[LV_KEY_COUNT]) {
     critical_section_exit(&state_lock);
 }
 
+uint32_t usb_bridge_completed_frame_count() {
+    return completed_frame_count;
+}
+
 uint8_t usb_bridge_host_status() {
     return host_status;
 }
@@ -301,6 +306,21 @@ extern "C" void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
         }
     }
     tuh_hid_receive_report(dev_addr, instance);
+}
+
+extern "C" void tuh_hid_report_sent_cb(uint8_t dev_addr, uint8_t instance,
+                                         const uint8_t *report, uint16_t len) {
+    if (dev_addr != raw_device || instance != raw_instance ||
+        len != LV_PACKET_SIZE || report[0] != LV_MAGIC_0 ||
+        report[1] != LV_MAGIC_1) {
+        return;
+    }
+
+    const uint8_t command = report[2];
+    if ((command & 0xF8) == LV_COMMAND_FRAME_BASE &&
+        (command & 0x07) == LV_CHUNK_COUNT - 1) {
+        ++completed_frame_count;
+    }
 }
 
 extern "C" void tud_hid_set_report_cb(uint8_t, uint8_t report_id,

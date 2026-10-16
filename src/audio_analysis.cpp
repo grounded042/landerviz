@@ -1,5 +1,6 @@
 #include "landerviz/audio_analysis.h"
 
+#include <algorithm>
 #include <cmath>
 
 static void fft_radix2(float *re, float *im, int n) {
@@ -69,6 +70,21 @@ float lv_meter_level(float linear_level) {
     return perceptual * soft_knee;
 }
 
+void lv_lcd_spectrum_bins(const float band_level[LV_BAND_COUNT],
+                          uint8_t bins[8]) {
+    static const uint8_t first_band[8] = {0, 1, 2, 3, 4, 6, 8, 10};
+    static const uint8_t last_band[8] = {0, 1, 2, 3, 5, 7, 9, 11};
+
+    for (int bin = 0; bin < 8; ++bin) {
+        float peak = 0.0f;
+        for (int band = first_band[bin]; band <= last_band[bin]; ++band) {
+            peak = std::max(peak, band_level[band]);
+        }
+        const int height = (int)(lv_perceptual_level(peak) * 8.0f + 0.5f);
+        bins[bin] = (uint8_t)std::clamp(height, 0, 8);
+    }
+}
+
 bool lv_audio_activity_update(lv_audio_activity_t *activity,
                               bool above_noise_gate, uint32_t now_ms) {
     activity->recent_frames =
@@ -132,6 +148,15 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
     static float re[LV_FFT_N];
     static float im[LV_FFT_N];
     static float magnitude[LV_FFT_N / 2];
+    static float hann_window[LV_FFT_N];
+    static bool window_initialized = false;
+    if (!window_initialized) {
+        for (int i = 0; i < LV_FFT_N; ++i) {
+            hann_window[i] =
+                0.5f - 0.5f * std::cos(2.0f * 3.14159265f * i / LV_FFT_N);
+        }
+        window_initialized = true;
+    }
     float sum_sq = 0.0f;
     float frame_mean = 0.0f;
 
@@ -143,9 +168,8 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
     for (int i = 0; i < LV_FFT_N; ++i) {
         const float sample =
             (((float)samples[i] - frame_mean) / LV_ADC_MID) * input_gain;
-        const float window = 0.5f - 0.5f * std::cos(2.0f * 3.14159265f * i / LV_FFT_N);
         sum_sq += sample * sample;
-        re[i] = sample * window;
+        re[i] = sample * hann_window[i];
         im[i] = 0.0f;
     }
 
@@ -160,7 +184,8 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
             if (magnitude[bin] > peak) peak = magnitude[bin];
         }
         if (peak > analysis->band_level[band]) analysis->band_level[band] = peak;
-        else analysis->band_level[band] += (peak - analysis->band_level[band]) * 0.25f;
+        else analysis->band_level[band] +=
+                 (peak - analysis->band_level[band]) * 0.4375f;
         if (analysis->band_level[band] > 1.0f) analysis->band_level[band] = 1.0f;
     }
 
@@ -169,7 +194,7 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
     if (bass > analysis->bass_avg * 1.25f && bass > 0.04f && bass > analysis->bass_env) {
         analysis->bass_env = bass;
     }
-    analysis->bass_avg += (bass - analysis->bass_avg) * 0.02f;
-    analysis->bass_env *= 0.96f;
+    analysis->bass_avg += (bass - analysis->bass_avg) * 0.0396f;
+    analysis->bass_env *= 0.9216f;
     analysis->rms_level = std::sqrt(sum_sq / LV_FFT_N);
 }

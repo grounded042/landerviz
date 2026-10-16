@@ -2,8 +2,9 @@
 
 LanderViz is a stand-alone audio visualizer for a ZSA Moonlander Mark I. A
 SparkFun Pro Micro RP2040 sits between the keyboard and the Mac, analyzes a
-stereo audio pair, and streams 60 frames per second of per-key color to custom
-Moonlander firmware. No visualizer program runs on the Mac.
+stereo audio pair, and targets 30 frames per second of per-key color to custom
+Moonlander firmware. No visualizer program runs on the Mac during stand-alone
+operation; the optional Mac preview exists only for development.
 
 The complete stereo prototype has been hardware validated: both audio channels
 drive the display and keyboard independently, the Moonlander receives RGB
@@ -148,8 +149,12 @@ The LCD is powered near 5 V but receives 3.3 V logic. That commonly works with
 HD44780-compatible modules; test this display before considering any level
 shifter, so the first build stays minimal.
 
-Row 0 shows independent left and right VU bars (volume-unit-style level meters),
-peak hold, and `!` on clipping. Row 1 shows the mode and measured frame rate.
+In `FLOW` and `SPECTRUM`, row 0 shows a mirrored stereo frequency spectrum:
+bass is at the outside edges and treble meets at the center. In the other
+modes, row 0 shows independent left and right VU bars (volume-unit-style level
+meters), peak hold, and `!` on clipping. Row 1 shows the mode and completed USB
+RGB frames per second. It counts only full eight-packet frames delivered to the
+Moonlander, rather than visualizer loop calls.
 
 ### Mode button
 
@@ -233,8 +238,24 @@ loop; ordinary "directional" analog cables cannot provide that isolation.
 
 ## Firmware behavior
 
-The four selectable modes are:
+See [Visualization design principles](docs/visualization-design.md) for the
+shared motion, smoothing, sampling, and validation rules used by every mode.
 
+The five selectable modes are:
+
+- `FLOW` (default): spectral flux (newly arriving energy) across all 12
+  frequency bands is compared across bass, musical body, and high-frequency
+  presence regions. The strongest region wins, then its strongest individual
+  band selects the hue instead of averaging several colors toward the middle.
+  Region weighting prevents cymbals from permanently washing the result blue.
+  The kick detector adds brightness but never overrides the selected hue, while
+  a shared adaptive gain preserves dynamics. A timestamped color ribbon moves
+  outward at roughly 110 ms per column. Fractional physical coordinates
+  stagger every row, a five-sample spatial filter spreads each transition
+  across neighboring keys,
+  and a subtle traveling brightness wave keeps same-hue motion visible. Hue is
+  rendered in HSV (hue–saturation–value) space so intermediate colors remain
+  saturated instead of becoming pastel RGB crossfades;
 - `SPECTRUM`: left audio drives the left keyboard half and right audio drives
   the right half; each half has bass at the outside and treble at the center,
   utility keys mirror the adjacent treble column, and thumbs pulse with bass;
@@ -245,7 +266,13 @@ The four selectable modes are:
 - `IDLE`: slowly drifting blue, teal, green, and violet aurora, also used after
   five seconds of quiet.
 
-The RP2040 targets 60 keyboard frames and 20 LCD refreshes per second.
+The RP2040 targets 30 complete keyboard frames and 10 LCD refreshes per second.
+It retains 256 audio samples per FFT for frequency resolution, but analyzes
+every other captured window—about 30.5 stereo analyses per second—to leave the
+USB and LED renderer more CPU time.
+The Moonlander's LED-driver flush interval is 26 ms (a ceiling of about 38
+frames per second), so 30 Hz leaves timing margin while exceeding the roughly
+27 Hz motion target.
 
 ## Safe bring-up order
 

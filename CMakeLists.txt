@@ -23,6 +23,7 @@ add_executable(landerviz
   main.cpp
   src/audio_analysis.cpp
   src/effects.cpp
+  src/visualizer.cpp
   src/usb_bridge.cpp
   src/usb_status.cpp
   src/usb_descriptors.cpp

@@ -2,11 +2,12 @@
 // Target: SparkFun Pro Micro RP2040, Raspberry Pi Pico SDK, C++17
 //
 // Implements the audio visualization modes:
+//   - FLOW:     stereo spectral ribbons moving out from the center split
 //   - SPECTRUM: column analyzer, mirrored across the split
 //   - PULSE:    kick-driven whole-board breath, slow hue rotation
 //   - VU:       smoothed stereo bottom-to-top meters
 //   - IDLE:     slow aurora, also shown when the mixer is silent
-// Plus: QC1602A LCD (stereo VU + peak-hold + clip, mode/fps status),
+// Plus: QC1602A LCD (spectrum or stereo VU, mode/fps status),
 //       tactile mode button (short = next, long = previous).
 
 #include <cmath>
@@ -25,6 +26,7 @@
 #include "landerviz/effects.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/usb_bridge.h"
+#include "landerviz/visualizer.h"
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -41,9 +43,10 @@
 #define BUTTON_PIN      8         // tactile switch: diagonal pins, GPIO -> GND, internal pull-up
 
 #define NUM_KEYS        72        // Moonlander total; mapping is pinned in moonlander_map.h
-#define SAMPLE_HZ       15625     // Per channel; 256-pt FFT => ~61 Hz spectrum refresh
+#define SAMPLE_HZ       15625     // Per channel; 61 capture windows/s, ~30 analyses/s
 #define AUDIO_INPUT_GAIN 8.0f     // Passive mixer compensation; +18 dB visualization gain
-#define LCD_REFRESH_MS  50        // 20 fps; keep LCD writes from delaying USB too often
+#define LCD_REFRESH_MS  100       // 10 fps; the character LCD need not steal RGB frame time
+#define KEYBOARD_FRAME_US 33333   // 30 fps; Moonlander LED flush ceiling is ~38 fps
 
 #define BOOT_LINE0      "LANDERVIZ"
 #define BOOT_LINE1      "audio -> light"
@@ -51,9 +54,6 @@
 // Global brightness cap — the QMK-side twin of the brownout plan.
 // Keeps LED current spikes inside what the Anker hub data port + bulk cap can do.
 #define BRIGHTNESS_CAP  175       // 0..255; never exceed the Moonlander's QMK cap
-
-enum class VizMode : uint8_t { SPECTRUM = 0, PULSE = 1, VU = 2, IDLE = 3, COUNT = 4 };
-static const char* const MODE_NAMES[] = { "SPECTRUM", "PULSE", "VU", "IDLE" };
 
 // ---------------------------------------------------------------------------
 // Tiny RGB helpers
@@ -73,22 +73,14 @@ static RGB scale_rgb(RGB c, uint8_t k) {  // k 0..255
 // ---------------------------------------------------------------------------
 
 static RGB frame[NUM_KEYS];
-
-// half: 0 = left, 1 = right. col/row address each half's 6x5 ragged grid.
-static inline int key_at(int half, int col, int row, int cols_per_half, int rows_per_half) {
-    if (cols_per_half != 6 || rows_per_half != 5) return -1;
-    return lv_key_at(half, col, row);
-}
-
-static void board_set(int key, RGB c) {
-    if (key < 0 || key >= NUM_KEYS) return;
-    frame[key] = scale_rgb(c, BRIGHTNESS_CAP);
-}
-
-static void board_clear() { memset(frame, 0, sizeof(frame)); }
+static lv_visualizer_t visualizer = {};
 
 static void board_show() {
-    usb_bridge_submit_frame(frame);
+    RGB capped[NUM_KEYS];
+    for (int key = 0; key < NUM_KEYS; ++key) {
+        capped[key] = scale_rgb(frame[key], BRIGHTNESS_CAP);
+    }
+    usb_bridge_submit_frame(capped);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +149,18 @@ static void lcd_load_vu_chars() {
     for (int r = 0; r < 8; r++) lcd_data(0x04);
 }
 
+// Custom chars 0..6 are vertical spectrum bars one through seven pixels tall.
+// The LCD's built-in full-block character supplies the eighth level.
+static void lcd_load_spectrum_chars() {
+    for (int ch = 0; ch < 7; ++ch) {
+        lcd_cmd(0x40 + ch * 8);
+        const int height = ch + 1;
+        for (int row = 0; row < 8; ++row) {
+            lcd_data(row >= 8 - height ? 0x1F : 0x00);
+        }
+    }
+}
+
 static void lcd_set_cursor(uint8_t col, uint8_t row) {
     lcd_cmd(0x80 + (row ? 0x40 : 0x00) + col);
 }
@@ -186,6 +190,12 @@ static void lcd_draw_vu_bar(uint8_t col, int level, int peak, bool clip) {
     }
     lcd_set_cursor(col + 5, 0);
     lcd_data(clip ? '!' : ' ');
+}
+
+static void lcd_draw_spectrum_cell(uint8_t height) {
+    if (height == 0) lcd_data(' ');
+    else if (height >= 8) lcd_data(0xFF);
+    else lcd_data((uint8_t)(height - 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -233,141 +243,10 @@ static void analyze_frame(const uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_
 }
 
 // ---------------------------------------------------------------------------
-// Visualizations — all write into `frame`, then board_show() pushes it.
-// ---------------------------------------------------------------------------
-
-static void viz_spectrum(uint32_t now_ms) {
-    (void)now_ms;
-    board_clear();
-    const int cols = 6, rows = 5;
-    RGB rendered[2][5][6]{};
-    static float peaks[LV_AUDIO_CHANNEL_COUNT][6] = {};
-    for (int half = 0; half < 2; half++) {
-        for (int c = 0; c < cols; c++) {
-            // Each stereo channel drives its matching keyboard half. Bass remains
-            // at the outside edge and treble remains toward the center split.
-            const int visual_band = half == 0 ? c : cols - 1 - c;
-            const int band = visual_band * 2;
-            const float lvl = lv_perceptual_level(
-                fmaxf(audio[half].band_level[band], audio[half].band_level[band + 1]));
-            const int active_rows = lv_key_at(half, c, rows - 1) >= 0 ? rows : rows - 1;
-            int lit = (int)(lvl * active_rows + 0.5f);
-            uint8_t hue = (uint8_t)(visual_band * 42);  // red -> violet, outside -> split
-            for (int r = 0; r < active_rows; r++) {
-                RGB col = (r < lit)
-                    ? lv_hsv_to_rgb(hue, 255, 255)
-                    : lv_hsv_to_rgb(hue, 255, 20);   // dim floor so the board never looks dead
-                const int row = active_rows - 1 - r;
-                rendered[half][row][c] = col;
-                board_set(key_at(half, c, row, cols, rows), col);
-            }
-            // peak-hold dot on top
-            if (lvl > peaks[half][visual_band]) peaks[half][visual_band] = lvl;
-            else peaks[half][visual_band] *= 0.985f;
-            int pk = (int)(peaks[half][visual_band] * active_rows);
-            if (pk > 0 && pk <= active_rows) {
-                const int row = active_rows - pk;
-                rendered[half][row][c] = {255, 255, 255};
-                board_set(key_at(half, c, row, cols, rows), {255, 255, 255});
-            }
-        }
-
-        // The three inner utility keys mirror the nearest (treble) column.
-        const int inner_col = half == 0 ? cols - 1 : 0;
-        for (int key = 0; key < 3; ++key) {
-            board_set(lv_utility_key_at(half, key), rendered[half][key][inner_col]);
-        }
-
-        // The thumb cluster acts as a stereo bass pulse for its half.
-        const float bass = lv_perceptual_level(
-            fmaxf(audio[half].band_level[0], audio[half].band_level[1]));
-        const uint8_t thumb_value = (uint8_t)(20.0f + bass * 235.0f);
-        const RGB thumb_color = lv_hsv_to_rgb(0, 255, thumb_value);
-        for (int key = 0; key < 4; ++key) {
-            board_set(lv_thumb_key_at(half, key), thumb_color);
-        }
-    }
-}
-
-static uint8_t pulse_hue = 0;
-
-static void viz_pulse(uint32_t now_ms) {
-    const float stereo_bass = fmaxf(audio[0].bass_env, audio[1].bass_env);
-    const float visible_bass = lv_perceptual_level(stereo_bass);
-    uint8_t breath = (uint8_t)(24.0f + visible_bass * 231.0f);
-    // slow hue drift so it never looks static between kicks
-    static uint32_t last_hue_ms = 0;
-    if (now_ms - last_hue_ms >= 120) {
-        pulse_hue += (uint8_t)((now_ms - last_hue_ms) / 120);
-        last_hue_ms = now_ms;
-    }
-    RGB col = lv_hsv_to_rgb(pulse_hue, 220, breath);
-    for (int k = 0; k < NUM_KEYS; k++) board_set(k, col);
-}
-
-static void viz_vu(uint32_t now_ms) {
-    (void)now_ms;
-    static float displayed_levels[LV_AUDIO_CHANNEL_COUNT] = {};
-
-    for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
-        const float rms_peak = audio[half].rms_level * 1.41421356f;
-        const float target_level = lv_keyboard_vu_level(rms_peak);
-        displayed_levels[half] =
-            lv_vu_smooth_level(displayed_levels[half], target_level);
-        const float level = displayed_levels[half];
-        for (int col = 0; col < 6; ++col) {
-            const int row_count = lv_key_at(half, col, 4) >= 0 ? 5 : 4;
-            for (int row_from_bottom = 0; row_from_bottom < row_count;
-                 ++row_from_bottom) {
-                const int row = row_count - 1 - row_from_bottom;
-                board_set(lv_key_at(half, col, row),
-                          lv_vu_row_color(level, row_from_bottom, row_count));
-            }
-        }
-
-        for (int key = 0; key < 3; ++key) {
-            const int row_from_bottom = 2 - key;
-            board_set(lv_utility_key_at(half, key),
-                      lv_vu_row_color(level, row_from_bottom, 3));
-        }
-
-        const RGB thumb_color = lv_vu_row_color(level, 0, 5);
-        for (int key = 0; key < 4; ++key) {
-            board_set(lv_thumb_key_at(half, key), thumb_color);
-        }
-    }
-}
-
-static void viz_idle(uint32_t now_ms) {
-    for (int half = 0; half < 2; ++half) {
-        for (int row = 0; row < 5; ++row) {
-            for (int col = 0; col < 6; ++col) {
-                const float x = half == 0 ? (float)col : (float)(7 + col);
-                board_set(lv_key_at(half, col, row),
-                          lv_aurora_color(x, (float)row, now_ms));
-            }
-        }
-
-        const float inner_x = half == 0 ? 5.8f : 6.2f;
-        for (int key = 0; key < 3; ++key) {
-            board_set(lv_utility_key_at(half, key),
-                      lv_aurora_color(inner_x, 0.8f + key, now_ms));
-        }
-
-        for (int key = 0; key < 4; ++key) {
-            const float x = half == 0 ? 3.8f + key * 0.55f
-                                      : 8.2f - key * 0.55f;
-            board_set(lv_thumb_key_at(half, key),
-                      lv_aurora_color(x, 5.0f + (key & 1) * 0.35f, now_ms));
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Mode button: short press = next, long press (>800 ms) = previous
 // ---------------------------------------------------------------------------
 
-static VizMode mode = VizMode::SPECTRUM;
+static lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
 static uint32_t mode_announce_until_ms = 0;
 
 static void poll_button() {
@@ -388,23 +267,35 @@ static void poll_button() {
         stable = candidate;
         if (!stable) { press_ms = now; long_fired = false; }      // pressed
         else if (!long_fired) {                                   // released: short press
-            mode = (VizMode)(((int)mode + 1) % (int)VizMode::COUNT);
+            mode = (lv_viz_mode_t)(
+                ((int)mode + 1) % (int)lv_viz_mode_t::COUNT);
             mode_announce_until_ms = now + 1000;
         }
     }
     if (!stable && !long_fired && now - press_ms > 800) {         // long press
         long_fired = true;
-        mode = (VizMode)(((int)mode + (int)VizMode::COUNT - 1) % (int)VizMode::COUNT);
+        mode = (lv_viz_mode_t)(
+            ((int)mode + (int)lv_viz_mode_t::COUNT - 1) %
+            (int)lv_viz_mode_t::COUNT);
         mode_announce_until_ms = now + 1000;
     }
 }
 
 // ---------------------------------------------------------------------------
-// LCD status: row 0 stereo VU,
+// LCD status: row 0 stereo VU or mirrored stereo spectrum,
 // row 1 mode name + fps. Boot splash on power-up.
 // ---------------------------------------------------------------------------
 
 static void lcd_status(uint32_t now_ms, int fps) {
+    const bool show_spectrum =
+        mode == lv_viz_mode_t::FLOW || mode == lv_viz_mode_t::SPECTRUM;
+    static bool spectrum_chars_loaded = false;
+    if (show_spectrum != spectrum_chars_loaded) {
+        if (show_spectrum) lcd_load_spectrum_chars();
+        else lcd_load_vu_chars();
+        spectrum_chars_loaded = show_spectrum;
+    }
+
     int level[LV_AUDIO_CHANNEL_COUNT] = {};
     for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
         // A logarithmic RMS meter behaves like an audio meter: quiet signals
@@ -433,12 +324,27 @@ static void lcd_status(uint32_t now_ms, int fps) {
         clip[channel] = (int32_t)(clip_until_ms[channel] - now_ms) > 0;
     }
 
-    lcd_set_cursor(0, 0);
-    lcd_data('L');
-    lcd_draw_vu_bar(1, level[0], peak[0], clip[0]);
-    lcd_set_cursor(8, 0);
-    lcd_data('R');
-    lcd_draw_vu_bar(9, level[1], peak[1], clip[1]);
+    if (show_spectrum) {
+        uint8_t bins[LV_AUDIO_CHANNEL_COUNT][8] = {};
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            lv_lcd_spectrum_bins(audio[channel].band_level, bins[channel]);
+            if (level[channel] == 0) memset(bins[channel], 0, sizeof(bins[channel]));
+        }
+        lcd_set_cursor(0, 0);
+        for (int bin = 0; bin < 8; ++bin) {
+            lcd_draw_spectrum_cell(bins[0][bin]);
+        }
+        for (int bin = 7; bin >= 0; --bin) {
+            lcd_draw_spectrum_cell(bins[1][bin]);
+        }
+    } else {
+        lcd_set_cursor(0, 0);
+        lcd_data('L');
+        lcd_draw_vu_bar(1, level[0], peak[0], clip[0]);
+        lcd_set_cursor(8, 0);
+        lcd_data('R');
+        lcd_draw_vu_bar(9, level[1], peak[1], clip[1]);
+    }
 
     char line1[17];
     static lv_usb_status_display_t usb_display{};
@@ -455,12 +361,12 @@ static void lcd_status(uint32_t now_ms, int fps) {
     if (show_usb_status) {
         snprintf(line1, sizeof(line1), "USB: %-11s", usb_label);
     } else if ((int32_t)(mode_announce_until_ms - now_ms) > 0) {
-        snprintf(line1, sizeof(line1), ">%-15s", MODE_NAMES[(int)mode]);
+        snprintf(line1, sizeof(line1), ">%-15s", lv_viz_mode_name(mode));
     } else {
         const int display_fps = fps < 0 ? 0 : (fps > 999 ? 999 : fps);
         memset(line1, ' ', 16);
         line1[16] = '\0';
-        const char *mode_name = MODE_NAMES[(int)mode];
+        const char *mode_name = lv_viz_mode_name(mode);
         for (int i = 0; i < 8 && mode_name[i] != '\0'; ++i) line1[i] = mode_name[i];
         line1[9] = display_fps >= 100 ? (char)('0' + display_fps / 100) : ' ';
         line1[10] = display_fps >= 10 ? (char)('0' + display_fps / 10 % 10) : ' ';
@@ -504,8 +410,10 @@ int main() {
     uint32_t last_fps_ms = to_ms_since_boot(get_absolute_time());
     uint32_t last_lcd_ms = last_fps_ms;
     uint32_t last_render_us = time_us_32();
-    int frames = 0, fps = 0;
+    uint32_t last_completed_frames = usb_bridge_completed_frame_count();
+    int fps = 0;
     uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N];
+    uint32_t captured_audio_windows = 0;
 
     while (true) {
         usb_bridge_device_task();
@@ -515,34 +423,36 @@ int main() {
         if (adc_buffers.ready >= 0) {
             const uint32_t irq_state = save_and_disable_interrupts();
             const int completed = lv_audio_buffer_take(&adc_buffers);
-            if (completed >= 0) {
+            const bool analyze_window =
+                completed >= 0 &&
+                captured_audio_windows++ % LV_ANALYSIS_DECIMATION == 0;
+            if (analyze_window) {
                 memcpy(samples, (const void *)adc_buf[completed], sizeof(samples));
             }
             restore_interrupts(irq_state);
-            if (completed >= 0) analyze_frame(samples);
+            if (analyze_window) analyze_frame(samples);
         }
 
         const uint32_t render_us = time_us_32();
-        if (render_us - last_render_us >= 16667) {
-            last_render_us = render_us;
-            if (!audio_present && mode != VizMode::IDLE) {
-                viz_idle(now);
-            } else {
-                switch (mode) {
-                    case VizMode::SPECTRUM: viz_spectrum(now); break;
-                    case VizMode::PULSE:    viz_pulse(now);    break;
-                    case VizMode::VU:       viz_vu(now);       break;
-                    case VizMode::IDLE:     viz_idle(now);     break;
-                    default: break;
-                }
+        if (render_us - last_render_us >= KEYBOARD_FRAME_US) {
+            last_render_us += KEYBOARD_FRAME_US;
+            if (render_us - last_render_us >= KEYBOARD_FRAME_US) {
+                // Do not burst stale animation frames after an unusually long
+                // LCD or USB stall; resume from the current wall-clock frame.
+                last_render_us = render_us;
             }
+            lv_visualizer_render(&visualizer, mode, audio, audio_present, now,
+                                 frame);
             board_show();
-            frames++;
         }
 
         if (now - last_fps_ms >= 1000) {
-            fps = frames;
-            frames = 0;
+            const uint32_t completed = usb_bridge_completed_frame_count();
+            const uint32_t elapsed_ms = now - last_fps_ms;
+            fps = (int)(((completed - last_completed_frames) * 1000u +
+                         elapsed_ms / 2u) /
+                        elapsed_ms);
+            last_completed_frames = completed;
             last_fps_ms = now;
         }
 

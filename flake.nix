@@ -137,7 +137,7 @@
         dontConfigure = true;
         buildPhase = ''
           $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
-            tests/protocol_test.cpp src/audio_analysis.cpp src/effects.cpp src/usb_status.cpp \
+            tests/protocol_test.cpp src/audio_analysis.cpp src/effects.cpp src/visualizer.cpp src/usb_status.cpp \
             -o protocol_test
           ./protocol_test
         '';

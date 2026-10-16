@@ -24,6 +24,7 @@ struct lv_usb_status_display_t {
 void usb_bridge_init();
 void usb_bridge_device_task();
 void usb_bridge_submit_frame(const lv_rgb_t frame[LV_KEY_COUNT]);
+uint32_t usb_bridge_completed_frame_count();
 uint8_t usb_bridge_host_status();
 uint8_t usb_bridge_host_status_history();
 const char* lv_usb_host_status_label(uint8_t status);
