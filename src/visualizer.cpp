@@ -11,6 +11,39 @@ void set_key(lv_rgb_t frame[LV_KEY_COUNT], int key, lv_rgb_t color) {
     if (key >= 0 && key < LV_KEY_COUNT) frame[key] = color;
 }
 
+void render_flow_ribbons(
+    const lv_spectral_flow_t flow[LV_AUDIO_CHANNEL_COUNT], uint32_t now_ms,
+    lv_rgb_t frame[LV_KEY_COUNT]) {
+    for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
+        for (int col = 0; col < LV_SPECTRAL_FLOW_COLUMNS; ++col) {
+            const int distance = half == 0
+                                     ? LV_SPECTRAL_FLOW_COLUMNS - 1 - col
+                                     : col;
+            for (int row = 0; row < 5; ++row) {
+                const float coordinate = lv_spectral_flow_coordinate(
+                    half, (float)distance, (float)row);
+                set_key(frame, lv_key_at(half, col, row),
+                        lv_spectral_flow_color(&flow[half], coordinate,
+                                               now_ms));
+            }
+        }
+
+        for (int key = 0; key < 3; ++key) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                half, 0.0f, (float)(key + 1));
+            set_key(frame, lv_utility_key_at(half, key),
+                    lv_spectral_flow_color(&flow[half], coordinate, now_ms));
+        }
+        constexpr float thumb_distance[4] = {1.25f, 0.85f, 0.45f, 0.0f};
+        for (int key = 0; key < 4; ++key) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                half, thumb_distance[key], 3.2f + key * 0.2f);
+            set_key(frame, lv_thumb_key_at(half, key),
+                    lv_spectral_flow_color(&flow[half], coordinate, now_ms));
+        }
+    }
+}
+
 void render_flow(lv_visualizer_t *visualizer,
                  const lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT],
                  uint32_t now_ms, lv_rgb_t frame[LV_KEY_COUNT]) {
@@ -43,36 +76,8 @@ void render_flow(lv_visualizer_t *visualizer,
             visualizer->flow_kick_packets_enabled ? &kick : nullptr;
         lv_spectral_flow_update(&visualizer->flow[half], flow_bands[half],
                                 bass_transient[half], now_ms, visible_kick);
-
-        for (int col = 0; col < LV_SPECTRAL_FLOW_COLUMNS; ++col) {
-            const int distance = half == 0
-                                     ? LV_SPECTRAL_FLOW_COLUMNS - 1 - col
-                                     : col;
-            for (int row = 0; row < 5; ++row) {
-                const float coordinate = lv_spectral_flow_coordinate(
-                    half, (float)distance, (float)row);
-                set_key(frame, lv_key_at(half, col, row),
-                        lv_spectral_flow_color(&visualizer->flow[half],
-                                               coordinate, now_ms));
-            }
-        }
-
-        for (int key = 0; key < 3; ++key) {
-            const float coordinate = lv_spectral_flow_coordinate(
-                half, 0.0f, (float)(key + 1));
-            set_key(frame, lv_utility_key_at(half, key),
-                    lv_spectral_flow_color(&visualizer->flow[half],
-                                           coordinate, now_ms));
-        }
-        constexpr float thumb_distance[4] = {1.25f, 0.85f, 0.45f, 0.0f};
-        for (int key = 0; key < 4; ++key) {
-            const float coordinate = lv_spectral_flow_coordinate(
-                half, thumb_distance[key], 3.2f + key * 0.2f);
-            set_key(frame, lv_thumb_key_at(half, key),
-                    lv_spectral_flow_color(&visualizer->flow[half],
-                                           coordinate, now_ms));
-        }
     }
+    render_flow_ribbons(visualizer->flow, now_ms, frame);
 }
 
 void render_spectrum(lv_visualizer_t *visualizer,
@@ -201,6 +206,13 @@ void render_idle(uint32_t now_ms, lv_rgb_t frame[LV_KEY_COUNT]) {
 }
 
 }  // namespace
+
+void lv_visualizer_render_flow_ribbons(
+    const lv_spectral_flow_t flow[LV_AUDIO_CHANNEL_COUNT], uint32_t now_ms,
+    lv_rgb_t frame[LV_KEY_COUNT]) {
+    std::memset(frame, 0, sizeof(lv_rgb_t) * LV_KEY_COUNT);
+    render_flow_ribbons(flow, now_ms, frame);
+}
 
 const char *lv_viz_mode_name(lv_viz_mode_t mode) {
     static constexpr const char *names[] = {

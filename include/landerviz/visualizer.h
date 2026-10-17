@@ -38,6 +38,12 @@ uint16_t lv_visualizer_flow_travel_ms(const lv_visualizer_t *visualizer);
 void lv_visualizer_set_flow_kick_packets(lv_visualizer_t *visualizer,
                                          bool enabled);
 
+// Map two already-populated FLOW ribbons onto the physical Moonlander keys.
+// This keeps preview-only signal engines on the same spatial renderer as v1.
+void lv_visualizer_render_flow_ribbons(
+    const lv_spectral_flow_t flow[LV_AUDIO_CHANNEL_COUNT], uint32_t now_ms,
+    lv_rgb_t frame[LV_KEY_COUNT]);
+
 // Render all 72 Moonlander LEDs. When audio_present is false, every mode except
 // IDLE renders the aurora so preview and firmware share identical quiet-state
 // behavior.

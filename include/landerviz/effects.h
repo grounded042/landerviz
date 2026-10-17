@@ -31,6 +31,10 @@ typedef struct {
 
 typedef struct {
     float hue;
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+    float saturation;
+    float onset;
+#endif
     float value;
     uint32_t time_ms;
 } lv_spectral_flow_sample_t;
@@ -51,6 +55,9 @@ typedef struct {
     uint16_t history_head;
     uint16_t history_count;
     uint16_t travel_ms;
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+    float distance_decay;
+#endif
     bool initialized;
     bool hue_initialized;
 } lv_spectral_flow_t;
@@ -69,6 +76,20 @@ void lv_spectral_flow_update(
     lv_spectral_flow_t *flow,
     const float band_level[LV_SPECTRAL_FLOW_BANDS], float bass_transient,
     uint32_t now_ms, const lv_kick_event_t *kick = nullptr);
+
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+// Preview-only packet injection for the experimental v2 signal engine. Hue is
+// unwrapped against the prior packet so interpolation follows the shortest
+// path around the color wheel.
+void lv_spectral_flow_update_packet(lv_spectral_flow_t *flow, float hue,
+                                    float saturation, float value,
+                                    float onset_strength,
+                                    uint32_t now_ms);
+
+// Set cosmetic attenuation per column. Zero restores the v1 default of 0.97.
+void lv_spectral_flow_set_distance_decay(lv_spectral_flow_t *flow,
+                                         float decay_per_column);
+#endif
 
 // Convert a key's outward distance and vertical row into a continuous field
 // coordinate. Opposite row phase on each half prevents whole columns from

@@ -69,10 +69,14 @@ build board name is `sparkfun_promicro`; the flake already supplies it.
 
 ### Mac visualization preview
 
-The development-only preview uses the same C++ audio analyzer, visualization
-state, and Moonlander LED mapping as the RP2040 firmware. FFmpeg decodes MP3,
-WAV, FLAC, and other common audio files; SDL2 provides playback and draws all
-72 simulated keys. Neither dependency is included in the firmware.
+The development-only preview uses the same C++ audio analyzer and Moonlander
+LED mapping as the RP2040 firmware. It currently defaults to the preview-only
+FLOW v3 design lab; press `T` to cycle through v1, the frozen v2 baseline, and
+v3 at the same playback position. The committed v1 engine remains in firmware.
+See [FLOW v3 design contract](FLOW_V3_DESIGN.md) for the model and acceptance
+criteria. FFmpeg decodes MP3, M4A, WAV, FLAC, and other common audio files;
+SDL2 provides playback and draws all 72 simulated keys. Neither dependency is
+included in the firmware.
 
 ```sh
 nix run .#preview -- ~/Music/test-track.mp3
@@ -80,6 +84,8 @@ nix run .#preview -- --demo
 nix run .#preview -- --demo-kicks
 nix run .#preview -- --fps 25 ~/Music/test-track.mp3
 nix run .#preview -- --travel-ms 110 ~/Music/test-track.mp3
+nix run .#preview -- --trace /tmp/flow.csv ~/Music/test-track.mp3
+nix run .#preview -- --analyze-only --trace /tmp/flow.csv ~/Music/test-track.mp3
 ```
 
 The macOS package also includes a real application bundle. Opening it with no
@@ -90,17 +96,32 @@ open -n result-preview/LanderViz.app
 open -n result-preview/LanderViz.app --args --fps 30 "/absolute/path/song.mp3"
 ```
 
-Use left/right or number keys 1–5 to change mode, space to pause, `R` to
-restart, `G` to compare realistic light spill with the flat diagnostic view,
-`[`/`]` to change the simulated frame rate, comma/period to make FLOW
-slower/faster in 10 ms increments, and escape or `Q` to quit. The title bar
-shows the active mode, frame rate, FLOW travel time, and lighting style.
+Use `T` to cycle FLOW v1/v2/v3 at the same playback position, left/right or
+number keys 1–5 to change mode, space to pause, `R` to restart, `G` to compare
+realistic light spill with the flat diagnostic view, `[`/`]` to change the
+simulated frame rate, comma/period to make FLOW slower/faster in 10 ms
+increments, and escape or `Q` to quit. The title bar shows the active FLOW
+engine, mode, frame rate, FLOW travel time, and lighting style.
 `--travel-ms N` sets the initial 50–1000 ms per-column travel time. `--frames
 N` exits after N rendered frames and is intended for automated smoke tests.
+`--flow-v1`, `--flow-v2`, or `--flow-v3` selects an engine at startup. The
+default is v3. Within v3, `B` switches between the frozen direct bass envelope
+(Lab A) and bounded slow-bed contrast expansion (Lab B); `--bass-a` and
+`--bass-b` choose the startup version, with the accepted Lab B bass foundation
+as the default. `--trace FILE.csv` records the pre-gain gate,
+shared gain, per-channel energy, centroid, dominance, and low/mid/high onset
+flux, adaptive thresholds, strengths, and trigger decisions once per analyzed
+audio frame, plus the v3 raw bass, body, attack, and hue diagnostics. Add
+`--analyze-only` to process the complete track without opening a window or
+playing audio; it requires `--trace` and an audio file and prints the three
+accepted v2 onset counts when complete. FLOW v2 keeps its base color and
+energy stereo, but merges per-band energy across channels for shared rhythmic
+events so a panned hit launches one wavefront across both keyboard halves.
 `--demo-kicks` plays an isolated 120 BPM kick train and reports detected versus
-generated kicks in the title bar. Kick packets are enabled only in that
-diagnostic mode while the detector is being calibrated; normal FLOW previews
-use the smooth, constant-brightness color ribbon without kick accents.
+generated v1 kicks in the title bar. V1 kick packets are enabled only in that
+diagnostic mode while the detector is being calibrated; v3 independently
+shows only its stable-color, continuous bass body. V3 has no visual onset or
+attack path in this isolated diagnostic phase.
 
 Before flashing a Moonlander build, confirm the keyboard's hardware revision.
 ZSA's command-line flasher can accept the local file:

@@ -16,6 +16,8 @@
 #include <unistd.h>
 
 #include "landerviz/audio_analysis.h"
+#include "landerviz/flow_v2.h"
+#include "landerviz/flow_v3.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/visualizer.h"
 
@@ -29,11 +31,15 @@ constexpr int kGlowTextureSize = 112;
 
 struct Options {
     std::string input;
-    int fps = 25;
+    std::string trace_path;
+    int fps = 30;
     int frame_limit = 0;
     int flow_travel_ms = LV_SPECTRAL_FLOW_TRAVEL_MS;
     bool demo = false;
     bool kick_demo = false;
+    int flow_version = 3;
+    bool bass_contrast = true;
+    bool analyze_only = false;
 };
 
 struct KeyRect {
@@ -43,8 +49,8 @@ struct KeyRect {
 
 void usage(const char *program) {
     std::fprintf(stderr,
-                 "usage: %s [--fps N] [--travel-ms N] [--frames N] FILE\n"
-                 "       %s [--fps N] [--travel-ms N] [--frames N] --demo\n"
+                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--bass-a|--bass-b] [--analyze-only] FILE\n"
+                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--bass-a|--bass-b] --demo\n"
                  "       %s [--fps N] [--travel-ms N] [--frames N] --demo-kicks\n",
                  program, program, program);
 }
@@ -64,6 +70,21 @@ bool parse_options(int argc, char **argv, Options *options) {
             options->demo = true;
         } else if (argument == "--demo-kicks") {
             options->kick_demo = true;
+        } else if (argument == "--flow-v1") {
+            options->flow_version = 1;
+        } else if (argument == "--flow-v2") {
+            options->flow_version = 2;
+        } else if (argument == "--flow-v3") {
+            options->flow_version = 3;
+        } else if (argument == "--bass-a") {
+            options->bass_contrast = false;
+        } else if (argument == "--bass-b") {
+            options->bass_contrast = true;
+        } else if (argument == "--analyze-only") {
+            options->analyze_only = true;
+        } else if (argument == "--trace") {
+            if (++i >= argc || !options->trace_path.empty()) return false;
+            options->trace_path = argv[i];
         } else if (argument == "--fps" || argument == "--frames" ||
                    argument == "--travel-ms") {
             if (++i >= argc) return false;
@@ -89,7 +110,8 @@ bool parse_options(int argc, char **argv, Options *options) {
     const int sources = (options->demo ? 1 : 0) +
                         (options->kick_demo ? 1 : 0) +
                         (!options->input.empty() ? 1 : 0);
-    return sources == 1;
+    return sources == 1 && (!options->analyze_only ||
+                            !options->trace_path.empty());
 }
 
 std::vector<float> demo_audio() {
@@ -406,12 +428,120 @@ uint16_t adc_sample(float sample) {
     return (uint16_t)(LV_ADC_MID + scaled * LV_ADC_MID);
 }
 
+std::FILE *open_trace(const std::string &path) {
+    std::FILE *trace = std::fopen(path.c_str(), "w");
+    if (!trace) {
+        std::fprintf(stderr, "cannot open trace %s: %s\n", path.c_str(),
+                     std::strerror(errno));
+        return nullptr;
+    }
+    std::fprintf(
+        trace,
+        "audio_ms,gate_open,gain,raw_left,raw_right,value_left,value_right,raw_centroid_left_hz,raw_centroid_right_hz,centroid_left_hz,centroid_right_hz,palette_left,palette_right,dominance_left,dominance_right,flux_low,threshold_low,onset_low,triggered_low,flux_mid,threshold_mid,onset_mid,triggered_mid,flux_high,threshold_high,onset_high,triggered_high,v3_raw_bass,v3a_body,v3b_body,v3_attack,v3_hue\n");
+    return trace;
+}
+
+void write_trace_row(std::FILE *trace,
+                     const lv_flow_v2_features_t &features,
+                     const lv_flow_v3_features_t &v3a,
+                     const lv_flow_v3_features_t &v3b) {
+    std::fprintf(
+        trace,
+        "%u,%d,%.6f,%.6f,%.6f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.3f\n",
+        features.audio_time_ms, features.gate_open ? 1 : 0, features.gain,
+        features.channel[0].raw_level, features.channel[1].raw_level,
+        features.channel[0].value, features.channel[1].value,
+        features.channel[0].raw_centroid_hz,
+        features.channel[1].raw_centroid_hz,
+        features.channel[0].centroid_hz,
+        features.channel[1].centroid_hz,
+        features.channel[0].palette_position,
+        features.channel[1].palette_position,
+        features.channel[0].dominance, features.channel[1].dominance,
+        features.onset_flux[0], features.onset_threshold[0],
+        features.onset_low, features.onset_triggered[0] ? 1 : 0,
+        features.onset_flux[1], features.onset_threshold[1],
+        features.onset_mid, features.onset_triggered[1] ? 1 : 0,
+        features.onset_flux[2], features.onset_threshold[2],
+        features.onset_high, features.onset_triggered[2] ? 1 : 0,
+        v3a.raw_bass, v3a.body, v3b.body, v3b.attack, v3b.hue);
+}
+
+bool write_offline_trace(const std::vector<float> &audio,
+                         const std::string &path) {
+    std::FILE *trace = open_trace(path);
+    if (!trace) return false;
+
+    lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_flow_v2_t flow_v2{};
+    lv_flow_v3_t flow_v3_a{};
+    lv_flow_v3_t flow_v3_b{};
+    lv_flow_v3_set_bass_contrast(&flow_v3_b, true);
+    uint32_t onset_counts[3]{};
+    uint32_t trace_rows = 0;
+    const size_t total_audio_frames = audio.size() / 2;
+    size_t analyzed_frames = 0;
+    while (analyzed_frames + LV_FFT_N <= total_audio_frames) {
+        uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N];
+        for (int sample = 0; sample < LV_FFT_N; ++sample) {
+            const size_t offset = (analyzed_frames + sample) * 2;
+            samples[0][sample] = adc_sample(audio[offset]);
+            samples[1][sample] = adc_sample(audio[offset + 1]);
+        }
+
+        const size_t window_index = analyzed_frames / LV_FFT_N;
+        analyzed_frames += LV_FFT_N;
+        if (window_index % LV_ANALYSIS_DECIMATION != 0) continue;
+
+        bool above_gate = false;
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            lv_analyze_channel(&analysis[channel], samples[channel], 8.0f);
+            above_gate |=
+                lv_meter_level(analysis[channel].rms_level * 1.41421356f) >
+                0.0f;
+        }
+        const uint32_t audio_midpoint_ms = (uint32_t)(
+            (analyzed_frames - LV_FFT_N / 2) * 1000 / kSampleRate);
+        lv_flow_v2_update(&flow_v2, analysis, above_gate,
+                          audio_midpoint_ms);
+        lv_flow_v3_update(&flow_v3_a, analysis, above_gate,
+                          audio_midpoint_ms);
+        lv_flow_v3_update(&flow_v3_b, analysis, above_gate,
+                          audio_midpoint_ms);
+        for (int band = 0; band < 3; ++band) {
+            if (flow_v2.features.onset_triggered[band]) {
+                ++onset_counts[band];
+            }
+        }
+        write_trace_row(trace, flow_v2.features, flow_v3_a.features,
+                        flow_v3_b.features);
+        ++trace_rows;
+    }
+    const bool closed = std::fclose(trace) == 0;
+    std::fprintf(stderr,
+                 "analyzed %u frames; onsets low/mid/high: %u/%u/%u\n",
+                 trace_rows, onset_counts[0], onset_counts[1],
+                 onset_counts[2]);
+    return closed;
+}
+
 void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
                     lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT],
                     lv_audio_activity_t *activity, lv_visualizer_t *visualizer,
-                    size_t *analyzed_frames, bool kick_packets_enabled) {
+                    lv_flow_v2_t *flow_v2, lv_flow_v3_t *flow_v3_a,
+                    lv_flow_v3_t *flow_v3_b,
+                    size_t *analyzed_frames,
+                    bool kick_packets_enabled) {
     const uint16_t flow_travel_ms =
         lv_visualizer_flow_travel_ms(visualizer);
+    const uint16_t flow_v2_travel_ms =
+        flow_v2->ribbon[0].travel_ms > 0
+            ? flow_v2->ribbon[0].travel_ms
+            : (uint16_t)LV_SPECTRAL_FLOW_TRAVEL_MS;
+    const uint16_t flow_v3_travel_ms =
+        flow_v3_a->travel_ms > 0
+            ? flow_v3_a->travel_ms
+            : (uint16_t)LV_FLOW_V3_DEFAULT_TRAVEL_MS;
     SDL_ClearQueuedAudio(device);
     SDL_QueueAudio(device, audio.data(),
                    (Uint32)(audio.size() * sizeof(float)));
@@ -419,8 +549,15 @@ void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
                 sizeof(lv_channel_analysis_t) * LV_AUDIO_CHANNEL_COUNT);
     *activity = {};
     *visualizer = {};
+    *flow_v2 = {};
+    *flow_v3_a = {};
+    *flow_v3_b = {};
+    lv_flow_v3_set_bass_contrast(flow_v3_b, true);
     lv_visualizer_set_flow_travel_ms(visualizer, flow_travel_ms);
     lv_visualizer_set_flow_kick_packets(visualizer, kick_packets_enabled);
+    lv_flow_v2_set_travel_ms(flow_v2, flow_v2_travel_ms);
+    lv_flow_v3_set_travel_ms(flow_v3_a, flow_v3_travel_ms);
+    lv_flow_v3_set_travel_ms(flow_v3_b, flow_v3_travel_ms);
     *analyzed_frames = 0;
 }
 
@@ -441,6 +578,9 @@ int main(int argc, char **argv) {
     if (audio.empty()) {
         std::fprintf(stderr, "no audio samples available\n");
         return 1;
+    }
+    if (options.analyze_only) {
+        return write_offline_trace(audio, options.trace_path) ? 0 : 1;
     }
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -501,25 +641,54 @@ int main(int argc, char **argv) {
         }
     }
 
+    std::FILE *trace = nullptr;
+    if (!options.trace_path.empty()) {
+        trace = open_trace(options.trace_path);
+        if (!trace) {
+            SDL_CloseAudioDevice(device);
+            SDL_DestroyTexture(glow);
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            SDL_Quit();
+            return 1;
+        }
+    }
+
     lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT]{};
     lv_audio_activity_t activity{};
     lv_visualizer_t visualizer{};
+    lv_flow_v2_t flow_v2{};
+    lv_flow_v3_t flow_v3_a{};
+    lv_flow_v3_t flow_v3_b{};
+    lv_flow_v3_set_bass_contrast(&flow_v3_b, true);
     lv_visualizer_set_flow_travel_ms(
         &visualizer, (uint16_t)options.flow_travel_ms);
+    lv_flow_v2_set_travel_ms(&flow_v2,
+                             (uint16_t)options.flow_travel_ms);
+    lv_flow_v3_set_travel_ms(&flow_v3_a,
+                             (uint16_t)options.flow_travel_ms);
+    lv_flow_v3_set_travel_ms(&flow_v3_b,
+                             (uint16_t)options.flow_travel_ms);
     lv_rgb_t frame[LV_KEY_COUNT]{};
     size_t analyzed_frames = 0;
-    reset_playback(device, audio, analysis, &activity, &visualizer,
-                   &analyzed_frames, options.kick_demo);
+    reset_playback(device, audio, analysis, &activity, &visualizer, &flow_v2,
+                   &flow_v3_a, &flow_v3_b, &analyzed_frames,
+                   options.kick_demo);
     SDL_PauseAudioDevice(device, 0);
 
     lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
     bool running = true;
     bool paused = false;
     bool realistic_lighting = true;
+    int flow_version = options.flow_version;
+    bool bass_contrast = options.bass_contrast;
+    bool visualization_dirty = false;
     int rendered_frames = 0;
     uint32_t detected_kicks = 0;
+    uint32_t onset_counts[3]{};
     uint32_t observed_kick_ms = 0;
     bool observed_kick = false;
+    uint32_t trace_rows = 0;
     const uint64_t performance_frequency = SDL_GetPerformanceFrequency();
     uint64_t playback_started_at = SDL_GetPerformanceCounter();
     uint64_t paused_at = 0;
@@ -550,9 +719,11 @@ int main(int argc, char **argv) {
                     break;
                 case SDLK_r:
                     reset_playback(device, audio, analysis, &activity,
-                                   &visualizer, &analyzed_frames,
-                                   options.kick_demo);
+                                   &visualizer, &flow_v2, &flow_v3_a,
+                                   &flow_v3_b,
+                                   &analyzed_frames, options.kick_demo);
                     detected_kicks = 0;
+                    std::fill(onset_counts, onset_counts + 3, 0);
                     observed_kick_ms = 0;
                     observed_kick = false;
                     playback_started_at = SDL_GetPerformanceCounter();
@@ -577,6 +748,14 @@ int main(int argc, char **argv) {
                 case SDLK_g:
                     realistic_lighting = !realistic_lighting;
                     break;
+                case SDLK_t:
+                    flow_version = flow_version % 3 + 1;
+                    visualization_dirty = true;
+                    break;
+                case SDLK_b:
+                    bass_contrast = !bass_contrast;
+                    visualization_dirty = true;
+                    break;
                 case SDLK_LEFTBRACKET:
                     options.fps = std::max(1, options.fps - 1);
                     next_render_counter = (double)SDL_GetPerformanceCounter();
@@ -586,18 +765,32 @@ int main(int argc, char **argv) {
                     next_render_counter = (double)SDL_GetPerformanceCounter();
                     break;
                 case SDLK_COMMA:
-                    lv_visualizer_set_flow_travel_ms(
-                        &visualizer,
-                        (uint16_t)std::min<int>(
-                            1000,
-                            lv_visualizer_flow_travel_ms(&visualizer) + 10));
+                    {
+                        const uint16_t travel_ms =
+                            (uint16_t)std::min<int>(
+                                1000,
+                                lv_visualizer_flow_travel_ms(&visualizer) +
+                                    10);
+                        lv_visualizer_set_flow_travel_ms(&visualizer,
+                                                         travel_ms);
+                        lv_flow_v2_set_travel_ms(&flow_v2, travel_ms);
+                        lv_flow_v3_set_travel_ms(&flow_v3_a, travel_ms);
+                        lv_flow_v3_set_travel_ms(&flow_v3_b, travel_ms);
+                    }
                     break;
                 case SDLK_PERIOD:
-                    lv_visualizer_set_flow_travel_ms(
-                        &visualizer,
-                        (uint16_t)std::max<int>(
-                            50,
-                            lv_visualizer_flow_travel_ms(&visualizer) - 10));
+                    {
+                        const uint16_t travel_ms =
+                            (uint16_t)std::max<int>(
+                                50,
+                                lv_visualizer_flow_travel_ms(&visualizer) -
+                                    10);
+                        lv_visualizer_set_flow_travel_ms(&visualizer,
+                                                         travel_ms);
+                        lv_flow_v2_set_travel_ms(&flow_v2, travel_ms);
+                        lv_flow_v3_set_travel_ms(&flow_v3_a, travel_ms);
+                        lv_flow_v3_set_travel_ms(&flow_v3_b, travel_ms);
+                    }
                     break;
                 default: break;
             }
@@ -627,8 +820,10 @@ int main(int argc, char **argv) {
         if ((options.demo || options.kick_demo) && !paused &&
             played_frames >= total_audio_frames && analyzed_frames > 0) {
             reset_playback(device, audio, analysis, &activity, &visualizer,
-                           &analyzed_frames, options.kick_demo);
+                           &flow_v2, &flow_v3_a, &flow_v3_b, &analyzed_frames,
+                           options.kick_demo);
             detected_kicks = 0;
+            std::fill(onset_counts, onset_counts + 3, 0);
             observed_kick_ms = 0;
             observed_kick = false;
             playback_started_at = SDL_GetPerformanceCounter();
@@ -660,12 +855,43 @@ int main(int argc, char **argv) {
                 const uint32_t audio_ms =
                     (uint32_t)(analyzed_frames * 1000 / kSampleRate);
                 lv_audio_activity_update(&activity, above_gate, audio_ms);
+                const uint32_t audio_midpoint_ms = (uint32_t)(
+                    (analyzed_frames - LV_FFT_N / 2) * 1000 / kSampleRate);
+                lv_flow_v2_update(&flow_v2, analysis, above_gate,
+                                  audio_midpoint_ms);
+                lv_flow_v3_update(&flow_v3_a, analysis, above_gate,
+                                  audio_midpoint_ms);
+                lv_flow_v3_update(&flow_v3_b, analysis, above_gate,
+                                  audio_midpoint_ms);
+                for (int band = 0; band < 3; ++band) {
+                    if (flow_v2.features.onset_triggered[band]) {
+                        ++onset_counts[band];
+                    }
+                }
+                if (trace) {
+                    write_trace_row(trace, flow_v2.features,
+                                    flow_v3_a.features,
+                                    flow_v3_b.features);
+                    if (++trace_rows % 30 == 0) std::fflush(trace);
+                }
             }
         }
 
-        if (!paused || rendered_frames == 0) {
+        if (!paused || rendered_frames == 0 || visualization_dirty) {
+            lv_rgb_t v1_frame[LV_KEY_COUNT]{};
             lv_visualizer_render(&visualizer, mode, analysis, activity.active,
-                                 now_ms, frame);
+                                 now_ms, v1_frame);
+            if (mode == lv_viz_mode_t::FLOW && flow_version == 3 &&
+                activity.active) {
+                lv_flow_v3_render(
+                    bass_contrast ? &flow_v3_b : &flow_v3_a,
+                    now_ms, frame);
+            } else if (mode == lv_viz_mode_t::FLOW && flow_version == 2 &&
+                       activity.active) {
+                lv_flow_v2_render(&flow_v2, now_ms, frame);
+            } else {
+                std::memcpy(frame, v1_frame, sizeof(frame));
+            }
             if (options.kick_demo && visualizer.flow_kick.kick_seen &&
                 (!observed_kick || visualizer.flow_kick.last_kick_ms !=
                                        observed_kick_ms)) {
@@ -673,6 +899,7 @@ int main(int argc, char **argv) {
                 observed_kick = true;
                 observed_kick_ms = visualizer.flow_kick.last_kick_ms;
             }
+            visualization_dirty = false;
         }
         draw_keyboard(renderer, glow, realistic_lighting, keys, frame);
 
@@ -688,10 +915,31 @@ int main(int argc, char **argv) {
             std::snprintf(source_status, sizeof(source_status), "%s",
                           options.demo ? "demo" : options.input.c_str());
         }
+        char mode_status[32];
+        if (mode == lv_viz_mode_t::FLOW) {
+            if (flow_version == 3) {
+                const auto &bass = bass_contrast ? flow_v3_b.features
+                                                 : flow_v3_a.features;
+                std::snprintf(mode_status, sizeof(mode_status),
+                              "FLOW v3%c bass %.2f body %.2f",
+                              bass_contrast ? 'B' : 'A', bass.raw_bass,
+                              bass.body);
+            } else if (flow_version == 2) {
+                std::snprintf(mode_status, sizeof(mode_status),
+                              "FLOW v2 L/M/H %u/%u/%u",
+                              onset_counts[0], onset_counts[1],
+                              onset_counts[2]);
+            } else {
+                std::snprintf(mode_status, sizeof(mode_status), "FLOW v1");
+            }
+        } else {
+            std::snprintf(mode_status, sizeof(mode_status), "%s",
+                          lv_viz_mode_name(mode));
+        }
         std::snprintf(
             title, sizeof(title),
-            "LanderViz — %s — %d fps — %u ms/column — %s light — [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
-            lv_viz_mode_name(mode), options.fps,
+            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
+            mode_status, options.fps,
             lv_visualizer_flow_travel_ms(&visualizer),
             realistic_lighting ? "realistic" : "flat",
             source_status);
@@ -703,6 +951,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (trace) std::fclose(trace);
     SDL_CloseAudioDevice(device);
     SDL_DestroyTexture(glow);
     SDL_DestroyRenderer(renderer);

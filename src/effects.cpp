@@ -84,6 +84,28 @@ float fast_distance_decay(float coordinate) {
     return whole_decay[whole] * fraction_decay;
 }
 
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+float configurable_distance_decay(float coordinate, float decay_per_column) {
+    static constexpr float whole_decay_99[7] = {
+        1.0f, 0.99f, 0.9801f, 0.970299f,
+        0.96059601f, 0.95099005f, 0.94148015f,
+    };
+    const int whole = std::clamp((int)coordinate, 0, 6);
+    const float fraction = coordinate - (float)whole;
+    if (std::fabs(decay_per_column - 0.99f) < 0.0001f) {
+        const float fraction_decay =
+            1.0f - 0.0100503359f * fraction +
+            0.0000505046f * fraction * fraction -
+            0.0000001692f * fraction * fraction * fraction;
+        return whole_decay_99[whole] * fraction_decay;
+    }
+    if (std::fabs(decay_per_column - 0.97f) < 0.0001f) {
+        return fast_distance_decay(coordinate);
+    }
+    return std::pow(decay_per_column, coordinate);
+}
+#endif
+
 void spectral_source_hsv(
     lv_spectral_flow_t *flow,
     const float band_level[LV_SPECTRAL_FLOW_BANDS], float bass_transient,
@@ -203,18 +225,33 @@ void spectral_source_hsv(
     }
 }
 
-void append_ribbon_sample(lv_spectral_flow_t *flow, uint32_t now_ms) {
+void append_ribbon_sample(lv_spectral_flow_t *flow, float saturation,
+                          float onset, uint32_t now_ms) {
+#ifndef LANDERVIZ_PREVIEW_FLOW_V2
+    (void)saturation;
+    (void)onset;
+#endif
     if (flow->history_count > 0 &&
         flow->history[flow->history_head].time_ms == now_ms) {
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+        flow->history[flow->history_head] = {
+            flow->source_hue, saturation, onset, flow->source_value, now_ms};
+#else
         flow->history[flow->history_head] = {
             flow->source_hue, flow->source_value, now_ms};
+#endif
         return;
     }
 
     flow->history_head =
         (uint16_t)((flow->history_head + 1) % LV_SPECTRAL_FLOW_HISTORY);
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+    flow->history[flow->history_head] = {
+        flow->source_hue, saturation, onset, flow->source_value, now_ms};
+#else
     flow->history[flow->history_head] = {
         flow->source_hue, flow->source_value, now_ms};
+#endif
     if (flow->history_count < LV_SPECTRAL_FLOW_HISTORY) {
         ++flow->history_count;
     }
@@ -258,6 +295,10 @@ lv_spectral_flow_sample_t ribbon_sample_at_age(
                             : 0.0f;
     return {
         newer.hue + (older.hue - newer.hue) * blend,
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+        newer.saturation + (older.saturation - newer.saturation) * blend,
+        newer.onset + (older.onset - newer.onset) * blend,
+#endif
         newer.value + (older.value - newer.value) * blend,
         desired_age_ms < (float)now_ms
             ? now_ms - (uint32_t)desired_age_ms
@@ -355,16 +396,63 @@ void lv_spectral_flow_update(
     if (!flow->initialized || reset_history) {
         flow->history_head = 0;
         flow->history_count = 1;
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+        flow->history[0] = {
+            flow->source_hue, 255.0f, 0.0f, flow->source_value, now_ms};
+#else
         flow->history[0] = {
             flow->source_hue, flow->source_value, now_ms};
+#endif
         flow->initialized = true;
         flow->last_frame_ms = now_ms;
         return;
     }
 
-    append_ribbon_sample(flow, now_ms);
+    append_ribbon_sample(flow, 255.0f, 0.0f, now_ms);
     flow->last_frame_ms = now_ms;
 }
+
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+void lv_spectral_flow_update_packet(lv_spectral_flow_t *flow, float hue,
+                                    float saturation, float value,
+                                    float onset_strength,
+                                    uint32_t now_ms) {
+    const bool reset_history =
+        flow->initialized &&
+        now_ms - flow->last_frame_ms >= spectral_flow_stale_ms;
+    hue = wrap_hue(hue);
+    if (flow->initialized && !reset_history) {
+        hue = nearest_hue(hue, flow->history[flow->history_head].hue);
+    }
+    flow->base_hue = hue;
+    flow->source_hue = hue;
+    flow->base_value = std::clamp(value, 0.0f, 255.0f);
+    flow->source_value = flow->base_value;
+    saturation = std::clamp(saturation, 0.0f, 255.0f);
+    onset_strength = std::clamp(onset_strength, 0.0f, 1.0f);
+
+    if (!flow->initialized || reset_history) {
+        flow->history_head = 0;
+        flow->history_count = 1;
+        flow->history[0] = {
+            hue, saturation, onset_strength, flow->source_value, now_ms};
+        flow->initialized = true;
+        flow->hue_initialized = true;
+        flow->last_frame_ms = now_ms;
+        return;
+    }
+
+    append_ribbon_sample(flow, saturation, onset_strength, now_ms);
+    flow->last_frame_ms = now_ms;
+}
+
+void lv_spectral_flow_set_distance_decay(lv_spectral_flow_t *flow,
+                                         float decay_per_column) {
+    flow->distance_decay = decay_per_column == 0.0f
+                               ? 0.0f
+                               : std::clamp(decay_per_column, 0.90f, 1.0f);
+}
+#endif
 
 lv_rgb_t lv_spectral_flow_color(const lv_spectral_flow_t *flow,
                                 float coordinate, uint32_t now_ms) {
@@ -374,23 +462,52 @@ lv_rgb_t lv_spectral_flow_color(const lv_spectral_flow_t *flow,
     }
 
     float hue = 0.0f;
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+    float saturation = 0.0f;
+#endif
     float value = 0.0f;
     float total_weight = 0.0f;
     const uint16_t travel_ms = flow->travel_ms > 0
                                    ? flow->travel_ms
                                    : (uint16_t)LV_SPECTRAL_FLOW_TRAVEL_MS;
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+    const auto event_sample = ribbon_sample_at_age(
+        flow, now_ms, coordinate * travel_ms);
+    const float onset = std::clamp(event_sample.onset, 0.0f, 1.0f);
+#endif
     for (int tap = 0; tap < 5; ++tap) {
         const float sample_coordinate =
             std::max(0.0f, coordinate + spectral_blur_offsets[tap]);
         const auto sample = ribbon_sample_at_age(
             flow, now_ms, sample_coordinate * travel_ms);
         hue += sample.hue * spectral_blur_weights[tap];
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+        saturation += sample.saturation * spectral_blur_weights[tap];
+#endif
         value += sample.value * spectral_blur_weights[tap];
         total_weight += spectral_blur_weights[tap];
     }
+#ifdef LANDERVIZ_PREVIEW_FLOW_V2
+    const float decay_per_column = flow->distance_decay > 0.0f
+                                       ? flow->distance_decay
+                                       : 0.97f;
+    const float distance_decay =
+        configurable_distance_decay(coordinate, decay_per_column);
+    const float base_hue = hue / total_weight;
+    const float event_hue = nearest_hue(event_sample.hue, base_hue);
+    const float rendered_hue =
+        base_hue + (event_hue - base_hue) * onset;
+    const float base_value = value / total_weight;
+    const float event_value =
+        base_value + (255.0f - base_value) * onset;
+    return lv_hsv_to_rgb(color_channel(wrap_hue(rendered_hue)),
+                         color_channel(saturation / total_weight),
+                         color_channel(event_value * distance_decay));
+#else
     const float distance_decay = fast_distance_decay(coordinate);
     return lv_hsv_to_rgb(color_channel(wrap_hue(hue / total_weight)), 255,
                          color_channel(value / total_weight * distance_decay));
+#endif
 }
 
 lv_rgb_t lv_aurora_color(float x, float y, uint32_t now_ms) {

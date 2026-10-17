@@ -9,6 +9,8 @@
 #include "landerviz/audio_analysis.h"
 #include "landerviz/audio_buffer.h"
 #include "landerviz/effects.h"
+#include "landerviz/flow_v2.h"
+#include "landerviz/flow_v3.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/protocol.h"
 #include "landerviz/usb_bridge.h"
@@ -393,6 +395,530 @@ static int rgb_brightness(lv_rgb_t color) {
     return std::max((int)color.r, std::max((int)color.g, (int)color.b));
 }
 
+static lv_channel_analysis_t flow_v2_audio(float rms, int active_band,
+                                           float band_level) {
+    lv_channel_analysis_t audio{};
+    audio.rms_level = rms;
+    if (active_band >= 0) audio.mel_level[active_band] = band_level;
+    return audio;
+}
+
+static lv_channel_analysis_t flow_v2_audio_group(float rms, int first_band,
+                                                 int last_band,
+                                                 float band_level) {
+    lv_channel_analysis_t audio{};
+    audio.rms_level = rms;
+    for (int band = first_band; band <= last_band; ++band) {
+        audio.mel_level[band] = band_level;
+    }
+    return audio;
+}
+
+static lv_channel_analysis_t flow_v3_audio(float rms, float bass_61,
+                                           float bass_122,
+                                           int mel_band = 4,
+                                           float mel_level = 0.4f) {
+    lv_channel_analysis_t audio{};
+    audio.rms_level = rms;
+    audio.band_level[0] = bass_61;
+    audio.band_level[1] = bass_122;
+    if (mel_band >= 0) audio.mel_level[mel_band] = mel_level;
+    return audio;
+}
+
+static void test_flow_v3_bass_extraction_is_low_and_phase_safe() {
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.2f, 0.0f, 0.62f),
+        flow_v3_audio(0.2f, 0.18f, 0.0f),
+    };
+    assert(std::fabs(lv_flow_v3_bass_level(audio) - 0.62f) < 0.001f);
+
+    audio[1].band_level[2] = 0.90f;
+    assert(std::fabs(lv_flow_v3_bass_level(audio) - 0.765f) < 0.001f);
+
+    audio[0] = flow_v3_audio(0.2f, 0.0f, 0.0f, 7, 1.0f);
+    audio[1] = audio[0];
+    assert(lv_flow_v3_bass_level(audio) == 0.0f);
+}
+
+static void test_flow_v3_sustain_has_continuous_body_without_attack_flash() {
+    lv_flow_v3_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.2f, 0.02f, 0.02f),
+        flow_v3_audio(0.2f, 0.02f, 0.02f),
+    };
+    lv_flow_v3_update(&flow, audio, true, 0);
+    audio[0] = flow_v3_audio(0.3f, 0.55f, 0.48f);
+    audio[1] = audio[0];
+    lv_flow_v3_update(&flow, audio, true, 33);
+    assert(flow.features.body > 0.5f);
+    assert(flow.features.attack == 0.0f);
+
+    for (uint32_t now_ms = 66; now_ms <= 330; now_ms += 33) {
+        lv_flow_v3_update(&flow, audio, true, now_ms);
+    }
+    assert(flow.features.body > 0.5f);
+    assert(flow.features.attack == 0.0f);
+}
+
+static void test_flow_v3_close_bass_rises_remain_distinguishable() {
+    lv_flow_v3_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.1f, 0.02f, 0.02f),
+        flow_v3_audio(0.1f, 0.02f, 0.02f),
+    };
+    lv_flow_v3_update(&flow, audio, true, 0);
+
+    audio[0] = flow_v3_audio(0.3f, 0.70f, 0.55f);
+    audio[1] = audio[0];
+    lv_flow_v3_update(&flow, audio, true, 33);
+    const float first = flow.features.body;
+
+    audio[0] = flow_v3_audio(0.15f, 0.08f, 0.06f);
+    audio[1] = audio[0];
+    lv_flow_v3_update(&flow, audio, true, 66);
+    lv_flow_v3_update(&flow, audio, true, 99);
+    const float valley = flow.features.body;
+
+    audio[0] = flow_v3_audio(0.3f, 0.66f, 0.58f);
+    audio[1] = audio[0];
+    lv_flow_v3_update(&flow, audio, true, 132);
+    const float second = flow.features.body;
+    assert(first > valley + 0.20f);
+    assert(second > valley + 0.20f);
+    assert(flow.features.attack == 0.0f);
+}
+
+static void test_flow_v3_bass_lab_has_one_stable_color() {
+    lv_flow_v3_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.3f, 0.60f, 0.50f, 1, 0.8f),
+        flow_v3_audio(0.3f, 0.60f, 0.50f, 1, 0.8f),
+    };
+    lv_flow_v3_update(&flow, audio, true, 0);
+    const float first_hue = flow.features.hue;
+    audio[0] = flow_v3_audio(0.3f, 0.60f, 0.50f, 10, 0.8f);
+    audio[1] = audio[0];
+    lv_flow_v3_update(&flow, audio, true, 33);
+    assert(flow.features.hue == first_hue);
+}
+
+static void test_flow_v3_bass_contrast_preserves_body_and_separates_hits() {
+    lv_flow_v3_t lab_a{};
+    lv_flow_v3_t lab_b{};
+    lv_flow_v3_set_bass_contrast(&lab_b, true);
+    lv_channel_analysis_t bed[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.3f, 0.34f, 0.30f),
+        flow_v3_audio(0.3f, 0.34f, 0.30f),
+    };
+    for (uint32_t now_ms = 0; now_ms <= 3000; now_ms += 33) {
+        lv_flow_v3_update(&lab_a, bed, true, now_ms);
+        lv_flow_v3_update(&lab_b, bed, true, now_ms);
+    }
+    const float bed_a = lab_a.features.body;
+    const float bed_b = lab_b.features.body;
+    assert(bed_b < bed_a);
+    assert(bed_b >= bed_a * 0.40f);
+
+    lv_channel_analysis_t hit[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.5f, 0.75f, 0.68f),
+        flow_v3_audio(0.5f, 0.75f, 0.68f),
+    };
+    lv_flow_v3_update(&lab_a, hit, true, 3033);
+    lv_flow_v3_update(&lab_b, hit, true, 3033);
+    const float rise_a = lab_a.features.body - bed_a;
+    const float rise_b = lab_b.features.body - bed_b;
+    assert(rise_b > rise_a);
+    assert(lab_b.features.attack == 0.0f);
+}
+
+static void test_flow_v3_bass_contrast_suppresses_micro_twinkle() {
+    lv_flow_v3_t lab_a{};
+    lv_flow_v3_t lab_b{};
+    lv_flow_v3_set_bass_contrast(&lab_b, true);
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.3f, 0.34f, 0.30f),
+        flow_v3_audio(0.3f, 0.34f, 0.30f),
+    };
+    for (uint32_t now_ms = 0; now_ms <= 3000; now_ms += 33) {
+        lv_flow_v3_update(&lab_a, audio, true, now_ms);
+        lv_flow_v3_update(&lab_b, audio, true, now_ms);
+    }
+    const float a_before = lab_a.features.body;
+    const float b_before = lab_b.features.body;
+
+    audio[0] = flow_v3_audio(0.3f, 0.36f, 0.32f);
+    audio[1] = audio[0];
+    lv_flow_v3_update(&lab_a, audio, true, 3033);
+    lv_flow_v3_update(&lab_b, audio, true, 3033);
+    const float a_motion = lab_a.features.body - a_before;
+    const float b_motion = lab_b.features.body - b_before;
+    assert(a_motion > 0.0f);
+    assert(b_motion > 0.0f);
+    assert(b_motion < a_motion * 0.65f);
+}
+
+static void test_flow_v3_bass_lab_b_tracks_39_kicks_without_flashes() {
+    constexpr int sample_rate = 15625;
+    constexpr int seconds = 20;
+    lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_flow_v3_t flow{};
+    lv_flow_v3_set_bass_contrast(&flow, true);
+    std::array<uint16_t, LV_FFT_N> samples{};
+    float previous_previous = 0.0f;
+    float previous = 0.0f;
+    int visible_peaks = 0;
+    int window = 0;
+
+    for (int first_sample = 0;
+         first_sample + LV_FFT_N <= seconds * sample_rate;
+         first_sample += LV_FFT_N, ++window) {
+        for (int sample = 0; sample < LV_FFT_N; ++sample) {
+            const float time =
+                (float)(first_sample + sample) / sample_rate;
+            samples[sample] = (uint16_t)(
+                LV_ADC_MID + LV_ADC_MID * synthetic_kick_sample(time));
+        }
+        if (window % LV_ANALYSIS_DECIMATION != 0) continue;
+        for (auto &channel : analysis) {
+            lv_analyze_channel(&channel, samples.data(), 1.0f);
+        }
+        const bool gate_open =
+            lv_meter_level(analysis[0].rms_level * 1.41421356f) > 0.0f;
+        const uint32_t audio_midpoint_ms = (uint32_t)(
+            (uint64_t)(first_sample + LV_FFT_N / 2) * 1000 /
+            sample_rate);
+        lv_flow_v3_update(&flow, analysis, gate_open, audio_midpoint_ms);
+        assert(flow.features.attack == 0.0f);
+        const float current = flow.features.body;
+        if (previous > previous_previous && previous >= current &&
+            previous > 0.30f) {
+            ++visible_peaks;
+        }
+        previous_previous = previous;
+        previous = current;
+    }
+
+    if (visible_peaks != 39) {
+        std::fprintf(stderr,
+                     "FLOW v3 Bass Lab B rendered %d of 39 kick peaks\n",
+                     visible_peaks);
+    }
+    assert(visible_peaks == 39);
+}
+
+static void test_flow_v3_transport_interpolates_between_slices() {
+    lv_flow_v3_t flow{};
+    flow.travel_ms = 100;
+    flow.history[0] = {20.0f, 240.0f, 0.2f, 0.2f, 0.0f, 0.0f, 0};
+    flow.history[1] = {100.0f, 240.0f, 0.8f, 0.8f, 0.6f, 0.0f, 100};
+    flow.history_count = 2;
+    flow.history_head = 2;
+
+    const auto halfway = lv_flow_v3_sample(&flow, 0.5f, 100);
+    assert(std::fabs(halfway.hue - 60.0f) < 0.01f);
+    assert(std::fabs(halfway.body - 0.5f) < 0.01f);
+    assert(std::fabs(halfway.attack - 0.3f) < 0.01f);
+}
+
+static void test_flow_v2_closed_gate_cannot_amplify_noise() {
+    lv_flow_v2_gain_t gain{};
+    assert(std::fabs(lv_flow_v2_gain_update(&gain, 0.01f, false, 0) -
+                     1.0f) < 0.001f);
+    for (uint32_t now_ms = 33; now_ms <= 10000; now_ms += 33) {
+        lv_flow_v2_gain_update(&gain, 0.02f, false, now_ms);
+    }
+    assert(std::fabs(gain.gain - 1.0f) < 0.001f);
+
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t noise[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.02f, 2, 0.02f),
+        flow_v2_audio(0.015f, 2, 0.015f),
+    };
+    for (uint32_t now_ms = 0; now_ms <= 10000; now_ms += 33) {
+        lv_flow_v2_update(&flow, noise, false, now_ms);
+    }
+    assert(std::fabs(flow.features.gain - 1.0f) < 0.001f);
+    assert(flow.features.channel[0].value == 0.0f);
+    assert(flow.features.channel[1].value == 0.0f);
+    assert(!flow.features.gate_open);
+}
+
+static void test_flow_v2_gain_is_bounded_and_recovers_slowly() {
+    lv_flow_v2_gain_t gain{};
+    const float quiet_gain =
+        lv_flow_v2_gain_update(&gain, 0.03f, true, 0);
+    assert(quiet_gain > 7.9f && quiet_gain <= 8.0f);
+
+    const float after_loud_step =
+        lv_flow_v2_gain_update(&gain, 0.70f, true, 33);
+    assert(after_loud_step >= 0.5f && after_loud_step < quiet_gain);
+
+    float recovering = after_loud_step;
+    for (uint32_t now_ms = 66; now_ms <= 396; now_ms += 33) {
+        recovering = lv_flow_v2_gain_update(&gain, 0.03f, true, now_ms);
+    }
+    assert(recovering > after_loud_step);
+    assert(recovering < quiet_gain);
+}
+
+static void test_flow_v2_uses_one_gain_without_collapsing_stereo() {
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.12f, 4, 0.30f),
+        flow_v2_audio(0.06f, 4, 0.15f),
+    };
+    lv_flow_v2_update(&flow, audio, true, 100);
+
+    assert(flow.features.gain == flow.gain.gain);
+    assert(flow.features.channel[0].value >
+           flow.features.channel[1].value);
+    assert(flow.features.channel[0].raw_level >
+           flow.features.channel[1].raw_level);
+}
+
+static void test_flow_v2_packet_value_follows_short_term_energy() {
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.08f, 4, 0.20f),
+        flow_v2_audio(0.08f, 4, 0.20f),
+    };
+    lv_flow_v2_update(&flow, audio, true, 0);
+    const float quiet = flow.features.channel[0].value;
+
+    audio[0] = flow_v2_audio(0.32f, 4, 0.80f);
+    audio[1] = flow_v2_audio(0.32f, 4, 0.80f);
+    lv_flow_v2_update(&flow, audio, true, 33);
+    const float loud = flow.features.channel[0].value;
+    assert(loud > quiet + 10.0f);
+
+    audio[0] = flow_v2_audio(0.08f, 4, 0.20f);
+    audio[1] = flow_v2_audio(0.08f, 4, 0.20f);
+    lv_flow_v2_update(&flow, audio, true, 66);
+    assert(flow.features.channel[0].value < loud);
+    assert(flow.features.channel[0].value > quiet);
+}
+
+static void test_flow_v2_centroid_palette_is_ordered_and_vivid() {
+    const auto low = lv_flow_v2_palette(212.0f, 1.0f);
+    const auto mid = lv_flow_v2_palette(1135.0f, 1.0f);
+    const auto high = lv_flow_v2_palette(6084.0f, 1.0f);
+    assert(low.hue <= mid.hue && mid.hue <= high.hue);
+    assert(high.hue - low.hue > 200.0f);
+    assert(low.saturation >= 247.0f);
+    assert(mid.saturation >= 247.0f);
+    assert(high.saturation >= 247.0f);
+    assert(low.value_scale >= 254.0f);
+    assert(mid.value_scale >= 254.0f);
+    assert(high.value_scale >= 254.0f);
+
+    const auto balanced = lv_flow_v2_palette(1135.0f, 0.0f);
+    assert(balanced.saturation >= 247.0f);
+    assert(balanced.saturation < mid.saturation);
+
+    const float quiet_color = lv_flow_v2_palette_position(342.0f);
+    const float bright_color = lv_flow_v2_palette_position(743.0f);
+    assert(quiet_color >= 0.0f && bright_color <= 1.0f);
+    assert(bright_color - quiet_color > 0.52f);
+}
+
+static void test_flow_v2_smooths_centroid_in_log_frequency_space() {
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.10f, 0, 0.60f),
+        flow_v2_audio(0.10f, 0, 0.60f),
+    };
+    lv_flow_v2_update(&flow, audio, true, 0);
+    const float low_centroid = flow.features.channel[0].centroid_hz;
+
+    audio[0] = flow_v2_audio(0.10f, 11, 0.60f);
+    audio[1] = flow_v2_audio(0.10f, 11, 0.60f);
+    lv_flow_v2_update(&flow, audio, true, 33);
+    const float smoothed = flow.features.channel[0].centroid_hz;
+    assert(smoothed > low_centroid);
+    assert(smoothed < 6084.0f);
+
+    const float expected_log =
+        std::log2(low_centroid) +
+        (std::log2(6084.0f) - std::log2(low_centroid)) *
+            (1.0f - std::exp(-33.0f / 140.0f));
+    assert(std::fabs(std::log2(smoothed) - expected_log) < 0.02f);
+}
+
+static void test_flow_v2_shared_low_onset_detects_close_distinct_hits() {
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio_group(0.08f, 0, 3, 0.02f),
+        flow_v2_audio_group(0.08f, 0, 3, 0.02f),
+    };
+    lv_flow_v2_update(&flow, audio, true, 0);
+    assert(flow.features.onset_low == 0.0f);
+
+    // The first hit is hard-panned right. Shared onset analysis must still
+    // launch one event for both keyboard halves.
+    audio[1] = flow_v2_audio_group(0.30f, 0, 3, 0.85f);
+    lv_flow_v2_update(&flow, audio, true, 33);
+    assert(flow.features.onset_low > 0.5f);
+    const float first_hit = flow.features.onset_low;
+
+    audio[1] = flow_v2_audio_group(0.12f, 0, 3, 0.18f);
+    lv_flow_v2_update(&flow, audio, true, 66);
+    assert(flow.features.onset_low == 0.0f);
+    audio[1] = flow_v2_audio_group(0.09f, 0, 3, 0.08f);
+    lv_flow_v2_update(&flow, audio, true, 99);
+    assert(flow.features.onset_low == 0.0f);
+
+    // A second real hit 99 ms later must survive the refractory period even
+    // though the base brightness envelope has not fully released.
+    audio[1] = flow_v2_audio_group(0.30f, 0, 3, 0.85f);
+    lv_flow_v2_update(&flow, audio, true, 132);
+    assert(flow.features.onset_low > 0.5f);
+    assert(flow.features.onset_low > first_hit * 0.65f);
+}
+
+static void test_flow_v2_onsets_are_band_specific_and_do_not_retrigger_sustain() {
+    for (int onset_band = 0; onset_band < 3; ++onset_band) {
+        lv_flow_v2_t flow{};
+        lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+            flow_v2_audio_group(0.08f, 0, 11, 0.02f),
+            flow_v2_audio_group(0.08f, 0, 11, 0.02f),
+        };
+        lv_flow_v2_update(&flow, audio, true, 0);
+
+        const int first = onset_band * 4;
+        const int last = first + 3;
+        audio[0] = flow_v2_audio_group(0.25f, first, last, 0.75f);
+        audio[1] = audio[0];
+        lv_flow_v2_update(&flow, audio, true, 33);
+        const float onset[3] = {
+            flow.features.onset_low,
+            flow.features.onset_mid,
+            flow.features.onset_high,
+        };
+        assert(onset[onset_band] > 0.5f);
+        assert(onset[(onset_band + 1) % 3] == 0.0f);
+        assert(onset[(onset_band + 2) % 3] == 0.0f);
+
+        for (uint32_t now_ms = 66; now_ms <= 330; now_ms += 33) {
+            lv_flow_v2_update(&flow, audio, true, now_ms);
+            assert(flow.features.onset_low == 0.0f);
+            assert(flow.features.onset_mid == 0.0f);
+            assert(flow.features.onset_high == 0.0f);
+        }
+    }
+}
+
+static void test_flow_v2_routes_fft_onset_fixtures_to_low_mid_and_high() {
+    const int fixture_bin[3] = {4, 26, 82};
+    const auto silence = audio_tone(4, 0.0f);
+    for (int expected_band = 0; expected_band < 3; ++expected_band) {
+        lv_flow_v2_t flow{};
+        lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT]{};
+        for (auto &channel : audio) {
+            lv_analyze_channel(&channel, silence.data(), 1.0f);
+        }
+        lv_flow_v2_update(&flow, audio, false, 0);
+
+        const auto fixture = audio_tone(fixture_bin[expected_band], 0.45f);
+        for (auto &channel : audio) {
+            lv_analyze_channel(&channel, fixture.data(), 1.0f);
+        }
+        lv_flow_v2_update(&flow, audio, true, 33);
+        const float onset[3] = {
+            flow.features.onset_low,
+            flow.features.onset_mid,
+            flow.features.onset_high,
+        };
+        assert(onset[expected_band] > 0.0f);
+        assert(onset[expected_band] >= onset[(expected_band + 1) % 3]);
+        assert(onset[expected_band] >= onset[(expected_band + 2) % 3]);
+    }
+}
+
+static void test_flow_v2_bass_can_follow_mid_event_inside_shared_refractory() {
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio_group(0.08f, 0, 11, 0.02f),
+        flow_v2_audio_group(0.08f, 0, 11, 0.02f),
+    };
+    lv_flow_v2_update(&flow, audio, true, 0);
+
+    audio[0] = flow_v2_audio_group(0.25f, 4, 7, 0.80f);
+    audio[1] = audio[0];
+    lv_flow_v2_update(&flow, audio, true, 33);
+    assert(flow.features.onset_mid > 0.0f);
+    assert(flow.features.onset_low == 0.0f);
+
+    audio[0] = flow_v2_audio_group(0.25f, 0, 3, 0.80f);
+    audio[1] = audio[0];
+    lv_flow_v2_update(&flow, audio, true, 66);
+    assert(flow.features.onset_low > 0.0f);
+}
+
+static void test_flow_v2_mid_event_cannot_displace_recent_bass() {
+    lv_flow_v2_t flow{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio_group(0.08f, 0, 11, 0.02f),
+        flow_v2_audio_group(0.08f, 0, 11, 0.02f),
+    };
+    lv_flow_v2_update(&flow, audio, true, 0);
+
+    audio[0] = flow_v2_audio_group(0.25f, 0, 3, 0.80f);
+    audio[1] = audio[0];
+    lv_flow_v2_update(&flow, audio, true, 33);
+    assert(flow.features.onset_low > 0.0f);
+
+    audio[0] = flow_v2_audio_group(0.25f, 4, 7, 0.80f);
+    audio[1] = audio[0];
+    lv_flow_v2_update(&flow, audio, true, 66);
+    assert(flow.features.onset_mid == 0.0f);
+}
+
+static void test_flow_v2_event_wavefront_is_narrow_and_music_colored() {
+    lv_spectral_flow_t flow{};
+    lv_spectral_flow_set_distance_decay(&flow, 1.0f);
+    flow.travel_ms = 110;
+    lv_spectral_flow_update_packet(&flow, 150.0f, 255.0f, 190.0f,
+                                   0.0f, 0);
+    lv_spectral_flow_update_packet(&flow, 150.0f, 255.0f, 190.0f,
+                                   1.0f, 33);
+    lv_spectral_flow_update_packet(&flow, 150.0f, 255.0f, 190.0f,
+                                   0.0f, 66);
+
+    const auto source = lv_spectral_flow_color(&flow, 0.0f, 66);
+    const auto crest = lv_spectral_flow_color(&flow, 0.30f, 66);
+    const auto beyond = lv_spectral_flow_color(&flow, 0.60f, 66);
+    assert(rgb_brightness(crest) >= 250);
+    assert(rgb_brightness(crest) > rgb_brightness(source) + 45);
+    assert(rgb_brightness(crest) > rgb_brightness(beyond) + 45);
+    // The event inherits the packet's music-derived hue instead of replacing
+    // it with a fixed white or red flash.
+    assert(crest.b > crest.r && crest.b > crest.g);
+    assert(crest.r < 10);
+}
+
+static void test_flow_v2_close_events_keep_two_separate_crests() {
+    lv_spectral_flow_t flow{};
+    lv_spectral_flow_set_distance_decay(&flow, 1.0f);
+    flow.travel_ms = 110;
+    lv_spectral_flow_update_packet(&flow, 30.0f, 255.0f, 190.0f,
+                                   0.0f, 0);
+    lv_spectral_flow_update_packet(&flow, 30.0f, 255.0f, 190.0f,
+                                   1.0f, 33);
+    lv_spectral_flow_update_packet(&flow, 30.0f, 255.0f, 190.0f,
+                                   0.0f, 66);
+    lv_spectral_flow_update_packet(&flow, 30.0f, 255.0f, 190.0f,
+                                   1.0f, 99);
+    lv_spectral_flow_update_packet(&flow, 30.0f, 255.0f, 190.0f,
+                                   0.0f, 132);
+
+    const auto recent_crest = lv_spectral_flow_color(&flow, 0.30f, 132);
+    const auto valley = lv_spectral_flow_color(&flow, 0.60f, 132);
+    const auto older_crest = lv_spectral_flow_color(&flow, 0.90f, 132);
+    assert(rgb_brightness(recent_crest) > rgb_brightness(valley) + 40);
+    assert(rgb_brightness(older_crest) > rgb_brightness(valley) + 40);
+}
+
 static void test_spectral_flow_maps_frequency_regions_to_vivid_hues() {
     float low_bands[LV_SPECTRAL_FLOW_BANDS] = {};
     low_bands[0] = 1.0f;
@@ -672,12 +1198,15 @@ static void test_spectral_flow_blurs_a_sharp_boundary_across_keys() {
     flow.initialized = true;
     flow.history_count = 4;
     flow.history_head = 3;
-    flow.history[0] = {0.0f, 255.0f, 0};
+    flow.history[0] = {0.0f, 255.0f, 0.0f, 255.0f, 0};
     flow.history[1] = {
-        0.0f, 255.0f, 1000 - LV_SPECTRAL_FLOW_TRAVEL_MS - 1};
+        0.0f, 255.0f, 0.0f, 255.0f,
+        1000 - LV_SPECTRAL_FLOW_TRAVEL_MS - 1};
     flow.history[2] = {
-        -86.0f, 255.0f, 1000 - LV_SPECTRAL_FLOW_TRAVEL_MS};
-    flow.history[3] = {-86.0f, 255.0f, 1000};
+        -86.0f, 255.0f, 0.0f, 255.0f,
+        1000 - LV_SPECTRAL_FLOW_TRAVEL_MS};
+    flow.history[3] = {
+        -86.0f, 255.0f, 0.0f, 255.0f, 1000};
 
     const auto blue = lv_spectral_flow_color(&flow, 0.0f, 1000);
     const auto blue_edge = lv_spectral_flow_color(&flow, 0.6f, 1000);
@@ -893,6 +1422,27 @@ int main() {
     test_lcd_spectrum_bins_preserve_low_and_high_frequency_edges();
     test_audio_activity_ignores_isolated_noise_spikes();
     test_audio_activity_requires_sustained_sound_to_leave_idle();
+    test_flow_v2_closed_gate_cannot_amplify_noise();
+    test_flow_v2_gain_is_bounded_and_recovers_slowly();
+    test_flow_v2_uses_one_gain_without_collapsing_stereo();
+    test_flow_v2_packet_value_follows_short_term_energy();
+    test_flow_v2_centroid_palette_is_ordered_and_vivid();
+    test_flow_v2_smooths_centroid_in_log_frequency_space();
+    test_flow_v2_shared_low_onset_detects_close_distinct_hits();
+    test_flow_v2_onsets_are_band_specific_and_do_not_retrigger_sustain();
+    test_flow_v2_routes_fft_onset_fixtures_to_low_mid_and_high();
+    test_flow_v2_bass_can_follow_mid_event_inside_shared_refractory();
+    test_flow_v2_mid_event_cannot_displace_recent_bass();
+    test_flow_v2_event_wavefront_is_narrow_and_music_colored();
+    test_flow_v2_close_events_keep_two_separate_crests();
+    test_flow_v3_bass_extraction_is_low_and_phase_safe();
+    test_flow_v3_sustain_has_continuous_body_without_attack_flash();
+    test_flow_v3_close_bass_rises_remain_distinguishable();
+    test_flow_v3_bass_lab_has_one_stable_color();
+    test_flow_v3_bass_contrast_preserves_body_and_separates_hits();
+    test_flow_v3_bass_contrast_suppresses_micro_twinkle();
+    test_flow_v3_bass_lab_b_tracks_39_kicks_without_flashes();
+    test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();
     test_spectral_flow_limits_hue_motion_per_frame();
