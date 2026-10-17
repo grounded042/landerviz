@@ -98,20 +98,26 @@ open -n result-preview/LanderViz.app --args --fps 30 "/absolute/path/song.mp3"
 
 Use `T` to cycle FLOW v1/v2/v3 at the same playback position, left/right or
 number keys 1–5 to change mode, space to pause, `R` to restart, `G` to compare
-realistic light spill with the flat diagnostic view, `[`/`]` to change the
-simulated frame rate, comma/period to make FLOW slower/faster in 10 ms
-increments, and escape or `Q` to quit. The title bar shows the active FLOW
-engine, mode, frame rate, FLOW travel time, and lighting style.
+realistic light spill with the flat diagnostic view, `M` to switch the v3 bass
+and mid labs, `B` to compare Bass A/B, `[`/`]` to change the simulated frame
+rate, comma/period to make FLOW slower/faster in 10 ms increments, and escape
+or `Q` to quit. The title bar shows the active FLOW engine, mode, frame rate,
+FLOW travel time, and lighting style.
 `--travel-ms N` sets the initial 50–1000 ms per-column travel time. `--frames
 N` exits after N rendered frames and is intended for automated smoke tests.
 `--flow-v1`, `--flow-v2`, or `--flow-v3` selects an engine at startup. The
-default is v3. Within v3, `B` switches between the frozen direct bass envelope
-(Lab A) and bounded slow-bed contrast expansion (Lab B); `--bass-a` and
-`--bass-b` choose the startup version, with the accepted Lab B bass foundation
-as the default. `--trace FILE.csv` records the pre-gain gate,
+default is v3. Within v3, `M` switches between the new isolated midrange color
+lab and the frozen bass lab; `--mid-lab` and `--bass-lab` choose the startup
+view, with the mid lab as the default. In the bass lab, `B` switches between
+the frozen direct bass envelope (Lab A) and bounded slow-bed contrast expansion
+(Lab B); `--bass-a` and `--bass-b` choose the bass version, with the accepted
+Lab B bass foundation as the default. `--trace FILE.csv` records the pre-gain
+gate,
 shared gain, per-channel energy, centroid, dominance, and low/mid/high onset
 flux, adaptive thresholds, strengths, and trigger decisions once per analyzed
-audio frame, plus the v3 raw bass, body, attack, and hue diagnostics. Add
+audio frame, plus the v3 bass and midrange level, absolute and contrast
+centroids, contrast strength, base/target/rendered hue, and presence
+diagnostics. Add
 `--analyze-only` to process the complete track without opening a window or
 playing audio; it requires `--trace` and an audio file and prints the three
 accepted v2 onset counts when complete. FLOW v2 keeps its base color and

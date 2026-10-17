@@ -7,6 +7,9 @@ Status: Bass Lab B was accepted as the frozen bass foundation on 2026-10-17.
 Lab A remains available as its comparison baseline. Later feature work must
 preserve B's tested bass behavior.
 
+Mid Lab is the next isolated experiment. It is not yet accepted or integrated
+with Bass Lab B.
+
 ## Goal
 
 FLOW should read as one visual material moving with the music, not as a set of
@@ -64,6 +67,34 @@ This bass-only lab is test isolation, not a bass-owned architecture. Later
 slices will obtain primary hue and gesture from midrange musical content, slow
 palette context from the whole spectrum, and bounded texture from high
 frequencies while retaining the same slice and transport model.
+
+## Mid Lab contract
+
+Mid Lab isolates approximately 396 Hz–2.6 kHz. It ignores bass, cymbal/high-
+frequency energy, and audio loudness after a soft presence fade. The midrange
+spectral center controls only hue; it cannot change brightness.
+
+- Colors are generated in OKLCH (Oklab lightness, chroma, and hue) at fixed
+  perceptual lightness and the highest safe chroma for the selected hue.
+- Hue is smoothed and transported continuously. RGB interpolation is not used,
+  so transitions do not create muddy pastel colors.
+- One fixed, song-independent log-frequency palette centered at 850 Hz
+  expands the range common in the six reference tracks. There is no per-song
+  normalization.
+- A slow baseline follows each midrange mel band. Positive spectral change
+  above that baseline supplies a bounded directional hue accent: newly
+  prominent higher-frequency content can only pull the base hue upward, and
+  lower-frequency content can only pull it downward. The accent decays back to
+  the absolute spectral-center hue under sustained content. It is not an onset
+  trigger and cannot change brightness.
+- Equal-lightness tests cover the complete hue circle both before and after
+  the preview's 175/255 brightness cap.
+- Press `M` to compare the isolated mid lab with the frozen bass lab at the
+  same playback position.
+
+When the labs are eventually combined, Bass B exclusively owns body and
+perceived lightness. Midrange hue must be applied through this equal-lightness
+mapping so changing musical color cannot weaken or exaggerate a bass hit.
 
 ## Spatial and temporal rules
 

@@ -11,6 +11,7 @@
 #include "landerviz/effects.h"
 #include "landerviz/flow_v2.h"
 #include "landerviz/flow_v3.h"
+#include "landerviz/flow_v3_mid.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/protocol.h"
 #include "landerviz/usb_bridge.h"
@@ -605,6 +606,153 @@ static void test_flow_v3_bass_lab_b_tracks_39_kicks_without_flashes() {
                      visible_peaks);
     }
     assert(visible_peaks == 39);
+}
+
+static void test_flow_v3_mid_palette_is_vivid_and_equal_lightness() {
+    constexpr float target_lightness = 0.62f;
+    float capped_minimum_lightness = 1.0f;
+    float capped_maximum_lightness = 0.0f;
+    for (int hue = 0; hue < 360; hue += 15) {
+        const auto color = lv_flow_v3_vivid_color(
+            (float)hue, target_lightness);
+        const int maximum = std::max({(int)color.r, (int)color.g,
+                                      (int)color.b});
+        const int minimum = std::min({(int)color.r, (int)color.g,
+                                      (int)color.b});
+        assert(maximum - minimum >= 80);
+        assert(std::fabs(lv_flow_v3_color_lightness(color) -
+                         target_lightness) < 0.012f);
+        const lv_rgb_t capped = {
+            (uint8_t)(((uint16_t)color.r * 175 + 127) / 255),
+            (uint8_t)(((uint16_t)color.g * 175 + 127) / 255),
+            (uint8_t)(((uint16_t)color.b * 175 + 127) / 255),
+        };
+        const float capped_lightness =
+            lv_flow_v3_color_lightness(capped);
+        capped_minimum_lightness = std::min(capped_minimum_lightness,
+                                            capped_lightness);
+        capped_maximum_lightness = std::max(capped_maximum_lightness,
+                                            capped_lightness);
+    }
+    assert(capped_maximum_lightness - capped_minimum_lightness < 0.025f);
+}
+
+static void test_flow_v3_mid_lab_ignores_bass_and_highs() {
+    lv_flow_v3_mid_t mids{};
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 0, 0.9f),
+        flow_v2_audio(0.3f, 0, 0.9f),
+    };
+    lv_flow_v3_mid_update(&mids, audio, true, 0);
+    assert(mids.features.raw_level == 0.0f);
+
+    audio[0] = flow_v2_audio(0.3f, 10, 0.9f);
+    audio[1] = audio[0];
+    lv_flow_v3_mid_update(&mids, audio, true, 33);
+    assert(mids.features.raw_level == 0.0f);
+
+    audio[0] = flow_v2_audio(0.3f, 4, 0.9f);
+    audio[1] = audio[0];
+    lv_flow_v3_mid_update(&mids, audio, true, 66);
+    assert(mids.features.raw_level > 0.0f);
+    assert(mids.features.presence > 0.0f);
+}
+
+static void test_flow_v3_mid_hue_tracks_frequency_without_brightness_motion() {
+    lv_flow_v3_mid_t low{};
+    lv_flow_v3_mid_t high{};
+    lv_channel_analysis_t low_audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 1, 0.8f),
+        flow_v2_audio(0.3f, 1, 0.8f),
+    };
+    lv_channel_analysis_t high_audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 7, 0.8f),
+        flow_v2_audio(0.3f, 7, 0.8f),
+    };
+    lv_flow_v3_mid_update(&low, low_audio, true, 0);
+    lv_flow_v3_mid_update(&high, high_audio, true, 0);
+    assert(low.features.hue < high.features.hue);
+    assert(std::fabs(low.features.lightness -
+                     high.features.lightness) < 0.001f);
+
+    const float initial_hue = low.features.hue;
+    for (uint32_t now_ms = 33; now_ms <= 330; now_ms += 33) {
+        lv_flow_v3_mid_update(&low, low_audio, true, now_ms);
+    }
+    assert(std::fabs(low.features.hue - initial_hue) < 0.001f);
+    assert(std::fabs(low.features.lightness - 0.62f) < 0.001f);
+}
+
+static void test_flow_v3_mid_spectral_contrast_accents_new_frequency() {
+    lv_flow_v3_mid_t high_accent{};
+    lv_channel_analysis_t low_bed[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 2, 0.55f),
+        flow_v2_audio(0.3f, 2, 0.55f),
+    };
+    for (uint32_t now_ms = 0; now_ms <= 3000; now_ms += 33) {
+        lv_flow_v3_mid_update(&high_accent, low_bed, true, now_ms);
+    }
+    assert(high_accent.features.contrast_strength < 0.01f);
+
+    auto high_event = low_bed[0];
+    high_event.mel_level[6] = 0.70f;
+    lv_channel_analysis_t high_audio[LV_AUDIO_CHANNEL_COUNT] = {
+        high_event,
+        high_event,
+    };
+    lv_flow_v3_mid_update(&high_accent, high_audio, true, 3033);
+    assert(high_accent.features.contrast_strength > 0.10f);
+    assert(high_accent.features.contrast_centroid_hz >
+           high_accent.features.centroid_hz);
+    assert(high_accent.features.target_hue >
+           high_accent.features.base_hue);
+
+    lv_flow_v3_mid_t low_accent{};
+    lv_channel_analysis_t high_bed[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 6, 0.55f),
+        flow_v2_audio(0.3f, 6, 0.55f),
+    };
+    for (uint32_t now_ms = 0; now_ms <= 3000; now_ms += 33) {
+        lv_flow_v3_mid_update(&low_accent, high_bed, true, now_ms);
+    }
+    auto low_event = high_bed[0];
+    low_event.mel_level[1] = 0.70f;
+    lv_channel_analysis_t low_audio[LV_AUDIO_CHANNEL_COUNT] = {
+        low_event,
+        low_event,
+    };
+    lv_flow_v3_mid_update(&low_accent, low_audio, true, 3033);
+    assert(low_accent.features.contrast_strength > 0.10f);
+    assert(low_accent.features.contrast_centroid_hz <
+           low_accent.features.centroid_hz);
+    assert(low_accent.features.target_hue < low_accent.features.base_hue);
+    assert(std::fabs(high_accent.features.lightness -
+                     low_accent.features.lightness) < 0.001f);
+}
+
+static void test_flow_v3_mid_sustained_change_returns_to_base_hue() {
+    lv_flow_v3_mid_t mids{};
+    lv_channel_analysis_t bed[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 2, 0.55f),
+        flow_v2_audio(0.3f, 2, 0.55f),
+    };
+    for (uint32_t now_ms = 0; now_ms <= 3000; now_ms += 33) {
+        lv_flow_v3_mid_update(&mids, bed, true, now_ms);
+    }
+    auto changed = bed[0];
+    changed.mel_level[6] = 0.70f;
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        changed,
+        changed,
+    };
+    lv_flow_v3_mid_update(&mids, audio, true, 3033);
+    const float initial_contrast = mids.features.contrast_strength;
+    for (uint32_t now_ms = 3066; now_ms <= 10000; now_ms += 33) {
+        lv_flow_v3_mid_update(&mids, audio, true, now_ms);
+    }
+    assert(mids.features.contrast_strength < initial_contrast * 0.10f);
+    assert(std::fabs(mids.features.target_hue - mids.features.base_hue) <
+           1.0f);
 }
 
 static void test_flow_v3_transport_interpolates_between_slices() {
@@ -1442,6 +1590,11 @@ int main() {
     test_flow_v3_bass_contrast_preserves_body_and_separates_hits();
     test_flow_v3_bass_contrast_suppresses_micro_twinkle();
     test_flow_v3_bass_lab_b_tracks_39_kicks_without_flashes();
+    test_flow_v3_mid_palette_is_vivid_and_equal_lightness();
+    test_flow_v3_mid_lab_ignores_bass_and_highs();
+    test_flow_v3_mid_hue_tracks_frequency_without_brightness_motion();
+    test_flow_v3_mid_spectral_contrast_accents_new_frequency();
+    test_flow_v3_mid_sustained_change_returns_to_base_hue();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();
