@@ -18,6 +18,7 @@
 #include "landerviz/audio_analysis.h"
 #include "landerviz/flow_v2.h"
 #include "landerviz/flow_v3.h"
+#include "landerviz/flow_v3_combined.h"
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/visualizer.h"
@@ -30,6 +31,12 @@ constexpr int kWindowHeight = 540;
 constexpr uint8_t kBrightnessCap = 175;
 constexpr int kGlowTextureSize = 112;
 
+enum class FlowV3Lab {
+    COMBINED,
+    MID,
+    BASS,
+};
+
 struct Options {
     std::string input;
     std::string trace_path;
@@ -40,7 +47,7 @@ struct Options {
     bool kick_demo = false;
     int flow_version = 3;
     bool bass_contrast = true;
-    bool mid_lab = true;
+    FlowV3Lab flow_v3_lab = FlowV3Lab::COMBINED;
     bool analyze_only = false;
 };
 
@@ -51,8 +58,8 @@ struct KeyRect {
 
 void usage(const char *program) {
     std::fprintf(stderr,
-                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--bass-lab|--mid-lab] [--bass-a|--bass-b] [--analyze-only] FILE\n"
-                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--bass-lab|--mid-lab] [--bass-a|--bass-b] --demo\n"
+                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] [--analyze-only] FILE\n"
+                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] --demo\n"
                  "       %s [--fps N] [--travel-ms N] [--frames N] --demo-kicks\n",
                  program, program, program);
 }
@@ -82,10 +89,12 @@ bool parse_options(int argc, char **argv, Options *options) {
             options->bass_contrast = false;
         } else if (argument == "--bass-b") {
             options->bass_contrast = true;
+        } else if (argument == "--combined-lab") {
+            options->flow_v3_lab = FlowV3Lab::COMBINED;
         } else if (argument == "--bass-lab") {
-            options->mid_lab = false;
+            options->flow_v3_lab = FlowV3Lab::BASS;
         } else if (argument == "--mid-lab") {
-            options->mid_lab = true;
+            options->flow_v3_lab = FlowV3Lab::MID;
         } else if (argument == "--analyze-only") {
             options->analyze_only = true;
         } else if (argument == "--trace") {
@@ -701,7 +710,7 @@ int main(int argc, char **argv) {
     bool realistic_lighting = true;
     int flow_version = options.flow_version;
     bool bass_contrast = options.bass_contrast;
-    bool mid_lab = options.mid_lab;
+    FlowV3Lab flow_v3_lab = options.flow_v3_lab;
     bool visualization_dirty = false;
     int rendered_frames = 0;
     uint32_t detected_kicks = 0;
@@ -777,7 +786,13 @@ int main(int argc, char **argv) {
                     visualization_dirty = true;
                     break;
                 case SDLK_m:
-                    mid_lab = !mid_lab;
+                    if (flow_v3_lab == FlowV3Lab::COMBINED) {
+                        flow_v3_lab = FlowV3Lab::MID;
+                    } else if (flow_v3_lab == FlowV3Lab::MID) {
+                        flow_v3_lab = FlowV3Lab::BASS;
+                    } else {
+                        flow_v3_lab = FlowV3Lab::COMBINED;
+                    }
                     visualization_dirty = true;
                     break;
                 case SDLK_LEFTBRACKET:
@@ -914,7 +929,10 @@ int main(int argc, char **argv) {
                                  now_ms, v1_frame);
             if (mode == lv_viz_mode_t::FLOW && flow_version == 3 &&
                 activity.active) {
-                if (mid_lab) {
+                if (flow_v3_lab == FlowV3Lab::COMBINED) {
+                    lv_flow_v3_combined_render(
+                        &flow_v3_b, &flow_v3_mid, now_ms, frame);
+                } else if (flow_v3_lab == FlowV3Lab::MID) {
                     lv_flow_v3_mid_render(&flow_v3_mid, now_ms, frame);
                 } else {
                     lv_flow_v3_render(
@@ -953,7 +971,12 @@ int main(int argc, char **argv) {
         char mode_status[64];
         if (mode == lv_viz_mode_t::FLOW) {
             if (flow_version == 3) {
-                if (mid_lab) {
+                if (flow_v3_lab == FlowV3Lab::COMBINED) {
+                    std::snprintf(mode_status, sizeof(mode_status),
+                                  "FLOW v3 COMBINED bass %.2f hue %.0f",
+                                  flow_v3_b.features.body,
+                                  flow_v3_mid.features.hue);
+                } else if (flow_v3_lab == FlowV3Lab::MID) {
                     std::snprintf(mode_status, sizeof(mode_status),
                                   "FLOW v3 MID %.0f Hz hue %.0f",
                                   flow_v3_mid.features.centroid_hz,
@@ -980,7 +1003,7 @@ int main(int argc, char **argv) {
         }
         std::snprintf(
             title, sizeof(title),
-            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [M bass/mids] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
+            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [M combined/mid/bass] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
             mode_status, options.fps,
             lv_visualizer_flow_travel_ms(&visualizer),
             realistic_lighting ? "realistic" : "flat",

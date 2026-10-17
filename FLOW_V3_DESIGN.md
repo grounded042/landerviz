@@ -4,11 +4,11 @@ FLOW v3 is a preview-only experiment. It does not replace FLOW v2 or enter the
 RP2040 firmware until its behavior is accepted in the desktop preview.
 
 Status: Bass Lab B was accepted as the frozen bass foundation on 2026-10-17.
-Lab A remains available as its comparison baseline. Later feature work must
-preserve B's tested bass behavior.
+Lab A remains available as its comparison baseline. Mid Lab was accepted as
+the frozen hue foundation on 2026-10-17. Later feature work must preserve both
+tested behaviors.
 
-Mid Lab is the next isolated experiment. It is not yet accepted or integrated
-with Bass Lab B.
+Combined Lab is the current preview-only integration experiment.
 
 ## Goal
 
@@ -92,9 +92,26 @@ spectral center controls only hue; it cannot change brightness.
 - Press `M` to compare the isolated mid lab with the frozen bass lab at the
   same playback position.
 
-When the labs are eventually combined, Bass B exclusively owns body and
-perceived lightness. Midrange hue must be applied through this equal-lightness
-mapping so changing musical color cannot weaken or exaggerate a bass hit.
+## Combined Lab contract
+
+Combined Lab samples Bass B and Mid Lab at the same audio timestamp and ribbon
+coordinate, then renders one composed slice. It is not a crossfade between two
+rendered effects:
+
+- Bass B exclusively owns `body`, spatial smoothing, and perceived lightness.
+- Mid Lab owns hue. Its presence fade blends from Bass Lab cyan only when no
+  usable midrange color exists; it never changes lightness.
+- The compositor measures the perceived lightness produced by the frozen Bass
+  Lab value curve, then produces the most vivid in-gamut color at that same
+  lightness and the Mid Lab hue.
+- The two accepted histories remain independent and unchanged. Composition is
+  stateless, making regressions attributable to either input or the compositor.
+- Combined is the default v3 preview. Press `M` to cycle Combined, Mid, and
+  Bass at the same playback position.
+
+Before Combined can be accepted, tests must show that its body equals Bass B,
+its perceived lightness is invariant across hue both before and after the
+175/255 brightness cap, and the frozen 39-kick Bass B regression still passes.
 
 ## Spatial and temporal rules
 

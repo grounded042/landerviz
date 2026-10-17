@@ -11,6 +11,7 @@
 #include "landerviz/effects.h"
 #include "landerviz/flow_v2.h"
 #include "landerviz/flow_v3.h"
+#include "landerviz/flow_v3_combined.h"
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/protocol.h"
@@ -753,6 +754,83 @@ static void test_flow_v3_mid_sustained_change_returns_to_base_hue() {
     assert(mids.features.contrast_strength < initial_contrast * 0.10f);
     assert(std::fabs(mids.features.target_hue - mids.features.base_hue) <
            1.0f);
+}
+
+static void test_flow_v3_combined_sample_preserves_bass_body() {
+    lv_flow_v3_t bass{};
+    bass.travel_ms = 100;
+    bass.history[0] = {195.0f, 255.0f, 0.2f, 0.2f,
+                       0.0f, 0.0f, 0};
+    bass.history[1] = {195.0f, 255.0f, 0.8f, 0.8f,
+                       0.0f, 0.0f, 100};
+    bass.history_count = 2;
+    bass.history_head = 2;
+
+    lv_flow_v3_mid_t mids{};
+    mids.travel_ms = 100;
+    mids.history[0] = {300.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 0};
+    mids.history[1] = {300.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 100};
+    mids.history_count = 2;
+    mids.history_head = 2;
+
+    const auto combined = lv_flow_v3_combined_sample(
+        &bass, &mids, 0.5f, 100);
+    assert(std::fabs(combined.body - 0.5f) < 0.001f);
+    assert(std::fabs(combined.energy - 0.5f) < 0.001f);
+    assert(std::fabs(combined.hue - 300.0f) < 0.001f);
+
+    mids.history[0].body = 0.0f;
+    mids.history[1].body = 0.0f;
+    const auto bass_only = lv_flow_v3_combined_sample(
+        &bass, &mids, 0.5f, 100);
+    assert(std::fabs(bass_only.hue - 195.0f) < 0.001f);
+    assert(std::fabs(bass_only.body - combined.body) < 0.001f);
+}
+
+static void test_flow_v3_combined_hue_preserves_bass_lightness() {
+    constexpr float bodies[] = {0.05f, 0.20f, 0.50f, 1.0f};
+    constexpr float coordinates[] = {0.0f, 3.0f, 7.0f};
+    for (float body : bodies) {
+        for (float coordinate : coordinates) {
+            const float distance_fade = std::pow(0.975f, coordinate);
+            const float value = (0.12f + 0.88f * body) * distance_fade;
+            const auto reference = lv_hsv_to_rgb(
+                (uint8_t)std::lround(195.0f * 255.0f / 360.0f), 255,
+                (uint8_t)std::lround(value * 255.0f));
+            const float reference_lightness =
+                lv_flow_v3_color_lightness(reference);
+            float capped_minimum = 1.0f;
+            float capped_maximum = 0.0f;
+            for (int hue = 0; hue < 360; hue += 15) {
+                lv_flow_v3_slice_t slice{};
+                slice.hue = (float)hue;
+                slice.body = body;
+                const auto color = lv_flow_v3_combined_color(
+                    slice, coordinate);
+                assert(std::fabs(lv_flow_v3_color_lightness(color) -
+                                 reference_lightness) < 0.012f);
+                const lv_rgb_t capped = {
+                    (uint8_t)(((uint16_t)color.r * 175 + 127) / 255),
+                    (uint8_t)(((uint16_t)color.g * 175 + 127) / 255),
+                    (uint8_t)(((uint16_t)color.b * 175 + 127) / 255),
+                };
+                const float capped_lightness =
+                    lv_flow_v3_color_lightness(capped);
+                capped_minimum = std::min(capped_minimum,
+                                          capped_lightness);
+                capped_maximum = std::max(capped_maximum,
+                                          capped_lightness);
+            }
+            assert(capped_maximum - capped_minimum < 0.025f);
+        }
+    }
+
+    lv_flow_v3_slice_t silence{};
+    silence.hue = 120.0f;
+    const auto off = lv_flow_v3_combined_color(silence, 0.0f);
+    assert(off.r == 0 && off.g == 0 && off.b == 0);
 }
 
 static void test_flow_v3_transport_interpolates_between_slices() {
@@ -1595,6 +1673,8 @@ int main() {
     test_flow_v3_mid_hue_tracks_frequency_without_brightness_motion();
     test_flow_v3_mid_spectral_contrast_accents_new_frequency();
     test_flow_v3_mid_sustained_change_returns_to_base_hue();
+    test_flow_v3_combined_sample_preserves_bass_body();
+    test_flow_v3_combined_hue_preserves_bass_lightness();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();
