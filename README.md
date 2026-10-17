@@ -100,7 +100,8 @@ Use `T` to cycle FLOW v1/v2/v3 at the same playback position, left/right or
 number keys 1–5 to change mode, space to pause, `R` to restart, `G` to compare
 realistic light spill with the flat diagnostic view, `M` to cycle the v3
 Combined/Energy/Mid/Bass views, `B` to compare Bass A/B inside the Bass Lab,
-`[`/`]` to change the simulated frame rate, comma/period to make FLOW
+`E` to compare Combined with/without its capped Energy floor, `[`/`]` to
+change the simulated frame rate, comma/period to make FLOW
 slower/faster in 10 ms increments, and escape or `Q` to quit. The title bar
 shows the active FLOW engine, mode, frame rate, FLOW travel time, and lighting
 style.
@@ -113,8 +114,9 @@ Mid, and frozen Bass views; `--combined-lab`, `--energy-lab`, `--mid-lab`, and
 Bass Lab, `B` switches between the frozen direct bass envelope (Lab A) and
 bounded slow-bed contrast expansion (Lab B); `--bass-a` and `--bass-b` choose
 the bass version, with the accepted Lab B bass foundation as the default.
-Combined always uses Bass B. `--trace FILE.csv` records the pre-gain
-gate,
+Combined always uses Bass B. Its Energy floor is enabled by default;
+`--energy-floor` and `--no-energy-floor` select it at startup. `--trace
+FILE.csv` records the pre-gain gate,
 shared gain, per-channel energy, centroid, dominance, and low/mid/high onset
 flux, adaptive thresholds, strengths, and trigger decisions once per analyzed
 audio frame, plus the v3 bass and midrange level, absolute and contrast

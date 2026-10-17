@@ -903,6 +903,71 @@ static void test_flow_v3_energy_transport_interpolates_continuously() {
     assert(std::fabs(halfway.body - 0.5f) < 0.001f);
 }
 
+static void test_flow_v3_energy_floor_preserves_bass_body() {
+    lv_flow_v3_t bass{};
+    bass.history[0] = {195.0f, 255.0f, 0.08f, 0.08f,
+                       0.0f, 0.0f, 0};
+    bass.history[1] = {195.0f, 255.0f, 0.08f, 0.08f,
+                       0.0f, 0.0f, 100};
+    bass.history_count = 2;
+    bass.history_head = 2;
+
+    lv_flow_v3_mid_t mids{};
+    mids.history[0] = {300.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 0};
+    mids.history[1] = {300.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 100};
+    mids.history_count = 2;
+    mids.history_head = 2;
+
+    lv_flow_v3_energy_t energy{};
+    energy.history[0] = {195.0f, 255.0f, 0.60f, 0.60f,
+                         0.0f, 0.0f, 0};
+    energy.history[1] = {195.0f, 255.0f, 0.60f, 0.60f,
+                         0.0f, 0.0f, 100};
+    energy.history_count = 2;
+    energy.history_head = 2;
+
+    const auto combined = lv_flow_v3_combined_energy_sample(
+        &bass, &mids, &energy, 0.0f, 100);
+    assert(std::fabs(combined.body - 0.08f) < 0.001f);
+    assert(std::fabs(combined.energy - 0.60f) < 0.001f);
+    assert(std::fabs(lv_flow_v3_energy_floor_body(combined.energy) -
+                     0.132f) < 0.001f);
+}
+
+static void test_flow_v3_energy_floor_only_lifts_quiet_bass() {
+    lv_flow_v3_slice_t quiet{};
+    quiet.hue = 300.0f;
+    quiet.body = 0.05f;
+    quiet.energy = 0.50f;
+    const auto quiet_baseline = lv_flow_v3_combined_color(quiet, 0.0f);
+    const auto quiet_with_floor = lv_flow_v3_combined_energy_color(
+        quiet, 0.0f);
+    assert(lv_flow_v3_color_lightness(quiet_with_floor) >
+           lv_flow_v3_color_lightness(quiet_baseline));
+
+    lv_flow_v3_slice_t strong = quiet;
+    strong.body = 0.50f;
+    strong.energy = 1.0f;
+    const auto strong_baseline = lv_flow_v3_combined_color(strong, 0.0f);
+    const auto strong_with_floor = lv_flow_v3_combined_energy_color(
+        strong, 0.0f);
+    assert(strong_baseline.r == strong_with_floor.r);
+    assert(strong_baseline.g == strong_with_floor.g);
+    assert(strong_baseline.b == strong_with_floor.b);
+
+    lv_flow_v3_slice_t no_energy = quiet;
+    no_energy.energy = 0.0f;
+    const auto no_energy_baseline = lv_flow_v3_combined_color(
+        no_energy, 0.0f);
+    const auto no_energy_floor = lv_flow_v3_combined_energy_color(
+        no_energy, 0.0f);
+    assert(no_energy_baseline.r == no_energy_floor.r);
+    assert(no_energy_baseline.g == no_energy_floor.g);
+    assert(no_energy_baseline.b == no_energy_floor.b);
+}
+
 static void test_flow_v3_transport_interpolates_between_slices() {
     lv_flow_v3_t flow{};
     flow.travel_ms = 100;
@@ -1748,6 +1813,8 @@ int main() {
     test_flow_v3_energy_uses_fixed_phase_safe_full_spectrum_level();
     test_flow_v3_energy_has_smooth_attack_and_release();
     test_flow_v3_energy_transport_interpolates_continuously();
+    test_flow_v3_energy_floor_preserves_bass_body();
+    test_flow_v3_energy_floor_only_lifts_quiet_bass();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();

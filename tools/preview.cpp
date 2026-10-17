@@ -49,6 +49,7 @@ struct Options {
     bool kick_demo = false;
     int flow_version = 3;
     bool bass_contrast = true;
+    bool energy_floor = true;
     FlowV3Lab flow_v3_lab = FlowV3Lab::COMBINED;
     bool analyze_only = false;
 };
@@ -60,8 +61,8 @@ struct KeyRect {
 
 void usage(const char *program) {
     std::fprintf(stderr,
-                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--energy-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] [--analyze-only] FILE\n"
-                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--energy-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] --demo\n"
+                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--energy-lab|--mid-lab|--bass-lab] [--energy-floor|--no-energy-floor] [--bass-a|--bass-b] [--analyze-only] FILE\n"
+                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--energy-lab|--mid-lab|--bass-lab] [--energy-floor|--no-energy-floor] [--bass-a|--bass-b] --demo\n"
                  "       %s [--fps N] [--travel-ms N] [--frames N] --demo-kicks\n",
                  program, program, program);
 }
@@ -95,6 +96,10 @@ bool parse_options(int argc, char **argv, Options *options) {
             options->flow_v3_lab = FlowV3Lab::COMBINED;
         } else if (argument == "--energy-lab") {
             options->flow_v3_lab = FlowV3Lab::ENERGY;
+        } else if (argument == "--energy-floor") {
+            options->energy_floor = true;
+        } else if (argument == "--no-energy-floor") {
+            options->energy_floor = false;
         } else if (argument == "--bass-lab") {
             options->flow_v3_lab = FlowV3Lab::BASS;
         } else if (argument == "--mid-lab") {
@@ -725,6 +730,7 @@ int main(int argc, char **argv) {
     bool realistic_lighting = true;
     int flow_version = options.flow_version;
     bool bass_contrast = options.bass_contrast;
+    bool energy_floor = options.energy_floor;
     FlowV3Lab flow_v3_lab = options.flow_v3_lab;
     bool visualization_dirty = false;
     int rendered_frames = 0;
@@ -798,6 +804,10 @@ int main(int argc, char **argv) {
                     break;
                 case SDLK_b:
                     bass_contrast = !bass_contrast;
+                    visualization_dirty = true;
+                    break;
+                case SDLK_e:
+                    energy_floor = !energy_floor;
                     visualization_dirty = true;
                     break;
                 case SDLK_m:
@@ -955,8 +965,14 @@ int main(int argc, char **argv) {
             if (mode == lv_viz_mode_t::FLOW && flow_version == 3 &&
                 activity.active) {
                 if (flow_v3_lab == FlowV3Lab::COMBINED) {
-                    lv_flow_v3_combined_render(
-                        &flow_v3_b, &flow_v3_mid, now_ms, frame);
+                    if (energy_floor) {
+                        lv_flow_v3_combined_energy_render(
+                            &flow_v3_b, &flow_v3_mid, &flow_v3_energy,
+                            now_ms, frame);
+                    } else {
+                        lv_flow_v3_combined_render(
+                            &flow_v3_b, &flow_v3_mid, now_ms, frame);
+                    }
                 } else if (flow_v3_lab == FlowV3Lab::ENERGY) {
                     lv_flow_v3_energy_render(
                         &flow_v3_energy, now_ms, frame);
@@ -1001,7 +1017,8 @@ int main(int argc, char **argv) {
             if (flow_version == 3) {
                 if (flow_v3_lab == FlowV3Lab::COMBINED) {
                     std::snprintf(mode_status, sizeof(mode_status),
-                                  "FLOW v3 COMBINED bass %.2f hue %.0f",
+                                  "FLOW v3 COMBINED%s bass %.2f hue %.0f",
+                                  energy_floor ? "+E" : "",
                                   flow_v3_b.features.body,
                                   flow_v3_mid.features.hue);
                 } else if (flow_v3_lab == FlowV3Lab::ENERGY) {
@@ -1036,7 +1053,7 @@ int main(int argc, char **argv) {
         }
         std::snprintf(
             title, sizeof(title),
-            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [M combined/energy/mid/bass] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
+            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [M combined/energy/mid/bass] [E floor] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
             mode_status, options.fps,
             lv_visualizer_flow_travel_ms(&visualizer),
             realistic_lighting ? "realistic" : "flat",
