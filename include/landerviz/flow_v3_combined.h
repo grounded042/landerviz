@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "landerviz/flow_v3.h"
+#include "landerviz/flow_v3_attack.h"
 #include "landerviz/flow_v3_energy.h"
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/protocol.h"
@@ -41,4 +42,20 @@ lv_rgb_t lv_flow_v3_combined_energy_color(lv_flow_v3_slice_t sample,
 void lv_flow_v3_combined_energy_render(
     const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
     const lv_flow_v3_energy_t *energy, uint32_t now_ms,
+    lv_rgb_t frame[LV_KEY_COUNT]);
+
+// Accepted Attack integration: preserve the accepted Energy-floor ribbon,
+// but continuously tighten Bass B's spatial blur toward its unblurred body.
+// Attack cannot create light, change hue, or leave the bounds established by
+// the accepted blurred body and its underlying unblurred body.
+lv_flow_v3_slice_t lv_flow_v3_combined_energy_attack_sample(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack, float coordinate,
+    uint32_t now_ms);
+
+void lv_flow_v3_combined_energy_attack_render(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack, uint32_t now_ms,
     lv_rgb_t frame[LV_KEY_COUNT]);

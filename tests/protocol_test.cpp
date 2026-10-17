@@ -11,6 +11,7 @@
 #include "landerviz/effects.h"
 #include "landerviz/flow_v2.h"
 #include "landerviz/flow_v3.h"
+#include "landerviz/flow_v3_attack.h"
 #include "landerviz/flow_v3_combined.h"
 #include "landerviz/flow_v3_energy.h"
 #include "landerviz/flow_v3_mid.h"
@@ -968,6 +969,212 @@ static void test_flow_v3_energy_floor_only_lifts_quiet_bass() {
     assert(no_energy_baseline.b == no_energy_floor.b);
 }
 
+static void test_flow_v3_attack_has_no_initial_or_falling_edge_flash() {
+    lv_flow_v3_attack_t attack{};
+    lv_channel_analysis_t steady[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.3f, 3, 0.65f),
+        flow_v2_audio(0.3f, 3, 0.65f),
+    };
+    lv_flow_v3_attack_update(&attack, steady, true, 0);
+    assert(attack.features.attack == 0.0f);
+
+    lv_channel_analysis_t quiet[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_flow_v3_attack_update(&attack, quiet, true, 33);
+    assert(attack.features.attack == 0.0f);
+}
+
+static void test_flow_v3_attack_tracks_continuous_positive_rises() {
+    lv_flow_v3_attack_t small{};
+    lv_flow_v3_attack_t large{};
+    lv_channel_analysis_t silence[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_flow_v3_attack_update(&small, silence, true, 0);
+    lv_flow_v3_attack_update(&large, silence, true, 0);
+
+    lv_channel_analysis_t small_rise[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.2f, 4, 0.20f),
+        flow_v2_audio(0.2f, 4, 0.20f),
+    };
+    lv_channel_analysis_t large_rise[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.4f, 4, 0.80f),
+        flow_v2_audio(0.4f, 4, 0.80f),
+    };
+    lv_flow_v3_attack_update(&small, small_rise, true, 33);
+    lv_flow_v3_attack_update(&large, large_rise, true, 33);
+    assert(small.features.attack > 0.0f);
+    assert(large.features.attack > small.features.attack);
+
+    const float initial = large.features.attack;
+    for (uint32_t now_ms = 66; now_ms <= 1000; now_ms += 33) {
+        lv_flow_v3_attack_update(&large, large_rise, true, now_ms);
+    }
+    assert(large.features.attack < initial * 0.05f);
+}
+
+static void test_flow_v3_attack_repeats_without_refractory_timer() {
+    lv_flow_v3_attack_t attack{};
+    lv_channel_analysis_t quiet[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_channel_analysis_t hit[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v2_audio(0.4f, 2, 0.80f),
+        flow_v2_audio(0.4f, 2, 0.80f),
+    };
+    lv_flow_v3_attack_update(&attack, quiet, true, 0);
+    lv_flow_v3_attack_update(&attack, hit, true, 33);
+    const float first = attack.features.attack;
+    lv_flow_v3_attack_update(&attack, quiet, true, 66);
+    lv_flow_v3_attack_update(&attack, quiet, true, 99);
+    lv_flow_v3_attack_update(&attack, hit, true, 132);
+    const float second = attack.features.attack;
+    assert(first > 0.0f);
+    assert(second > 0.0f);
+    assert(second > first * 0.50f);
+}
+
+static void test_flow_v3_attack_stereo_merge_is_phase_safe() {
+    lv_flow_v3_attack_t left{};
+    lv_flow_v3_attack_t right{};
+    lv_channel_analysis_t silence[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_flow_v3_attack_update(&left, silence, true, 0);
+    lv_flow_v3_attack_update(&right, silence, true, 0);
+
+    lv_channel_analysis_t left_audio[LV_AUDIO_CHANNEL_COUNT]{};
+    left_audio[0] = flow_v2_audio(0.3f, 5, 0.70f);
+    lv_channel_analysis_t right_audio[LV_AUDIO_CHANNEL_COUNT]{};
+    right_audio[1] = flow_v2_audio(0.3f, 5, 0.70f);
+    lv_flow_v3_attack_update(&left, left_audio, true, 33);
+    lv_flow_v3_attack_update(&right, right_audio, true, 33);
+    assert(std::fabs(left.features.attack - right.features.attack) <
+           0.001f);
+}
+
+static void test_flow_v3_attack_transport_interpolates_continuously() {
+    lv_flow_v3_attack_t attack{};
+    attack.travel_ms = 100;
+    attack.history[0] = {195.0f, 255.0f, 0.0f, 0.0f,
+                         0.2f, 0.0f, 0};
+    attack.history[1] = {195.0f, 255.0f, 0.0f, 0.0f,
+                         0.8f, 0.0f, 100};
+    attack.history_count = 2;
+    attack.history_head = 2;
+    const auto halfway = lv_flow_v3_attack_sample(
+        &attack, 0.5f, 100);
+    assert(std::fabs(halfway.attack - 0.5f) < 0.001f);
+}
+
+static void test_flow_v3_attack_integration_is_inert_at_zero() {
+    lv_flow_v3_t bass{};
+    bass.travel_ms = 100;
+    bass.history[0] = {195.0f, 255.0f, 0.15f, 0.15f,
+                       0.0f, 0.0f, 0};
+    bass.history[1] = {195.0f, 255.0f, 0.70f, 0.70f,
+                       0.0f, 0.0f, 100};
+    bass.history_count = 2;
+    bass.history_head = 2;
+
+    lv_flow_v3_mid_t mids{};
+    mids.travel_ms = 100;
+    mids.history[0] = {300.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 0};
+    mids.history[1] = mids.history[0];
+    mids.history[1].audio_time_ms = 100;
+    mids.history_count = 2;
+    mids.history_head = 2;
+
+    lv_flow_v3_energy_t energy{};
+    energy.travel_ms = 100;
+    energy.history[0] = {195.0f, 255.0f, 0.5f, 0.5f,
+                         0.0f, 0.0f, 0};
+    energy.history[1] = energy.history[0];
+    energy.history[1].audio_time_ms = 100;
+    energy.history_count = 2;
+    energy.history_head = 2;
+
+    lv_flow_v3_attack_t attack{};
+    attack.travel_ms = 100;
+    attack.history[0] = {195.0f, 255.0f, 0.0f, 0.0f,
+                         0.0f, 0.0f, 0};
+    attack.history[1] = attack.history[0];
+    attack.history[1].audio_time_ms = 100;
+    attack.history_count = 2;
+    attack.history_head = 2;
+
+    const auto baseline = lv_flow_v3_combined_energy_sample(
+        &bass, &mids, &energy, 0.4f, 100);
+    const auto integrated = lv_flow_v3_combined_energy_attack_sample(
+        &bass, &mids, &energy, &attack, 0.4f, 100);
+    assert(std::fabs(integrated.body - baseline.body) < 0.000001f);
+    assert(std::fabs(integrated.energy - baseline.energy) < 0.000001f);
+    assert(std::fabs(integrated.hue - baseline.hue) < 0.000001f);
+    assert(integrated.attack == 0.0f);
+}
+
+static void test_flow_v3_attack_integration_only_tightens_existing_body() {
+    lv_flow_v3_t bass{};
+    bass.travel_ms = 100;
+    bass.history[0] = {195.0f, 255.0f, 0.0f, 0.0f,
+                       0.0f, 0.0f, 0};
+    bass.history[1] = {195.0f, 255.0f, 0.0f, 0.0f,
+                       0.0f, 0.0f, 70};
+    bass.history[2] = {195.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 100};
+    bass.history_count = 3;
+    bass.history_head = 3;
+
+    lv_flow_v3_mid_t mids{};
+    mids.travel_ms = 100;
+    mids.history[0] = {300.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 0};
+    mids.history[1] = mids.history[0];
+    mids.history[1].audio_time_ms = 100;
+    mids.history_count = 2;
+    mids.history_head = 2;
+
+    lv_flow_v3_energy_t energy{};
+    energy.travel_ms = 100;
+    energy.history[0] = {195.0f, 255.0f, 0.5f, 0.5f,
+                         0.0f, 0.0f, 0};
+    energy.history[1] = energy.history[0];
+    energy.history[1].audio_time_ms = 100;
+    energy.history_count = 2;
+    energy.history_head = 2;
+
+    lv_flow_v3_attack_t attack{};
+    attack.travel_ms = 100;
+    attack.history[0] = {195.0f, 255.0f, 0.0f, 0.0f,
+                         1.0f, 0.0f, 0};
+    attack.history[1] = attack.history[0];
+    attack.history[1].audio_time_ms = 100;
+    attack.history_count = 2;
+    attack.history_head = 2;
+
+    constexpr float coordinate = 0.10f;
+    constexpr uint32_t now_ms = 100;
+    const auto baseline = lv_flow_v3_combined_energy_sample(
+        &bass, &mids, &energy, coordinate, now_ms);
+    const auto raw = lv_flow_v3_sample(&bass, coordinate, now_ms);
+    const auto integrated = lv_flow_v3_combined_energy_attack_sample(
+        &bass, &mids, &energy, &attack, coordinate, now_ms);
+    assert(std::fabs(integrated.body - raw.body) <
+           std::fabs(baseline.body - raw.body));
+    assert(integrated.body >= std::min(baseline.body, raw.body));
+    assert(integrated.body <= std::max(baseline.body, raw.body));
+    assert(integrated.energy == baseline.energy);
+    assert(integrated.hue == baseline.hue);
+    assert(integrated.attack == 1.0f);
+
+    for (auto &slice : bass.history) {
+        slice.body = 0.0f;
+        slice.energy = 0.0f;
+    }
+    for (auto &slice : energy.history) {
+        slice.body = 0.0f;
+        slice.energy = 0.0f;
+    }
+    const auto silence = lv_flow_v3_combined_energy_attack_sample(
+        &bass, &mids, &energy, &attack, coordinate, now_ms);
+    assert(silence.body == 0.0f);
+    assert(lv_flow_v3_energy_floor_body(silence.energy) == 0.0f);
+}
+
 static void test_flow_v3_transport_interpolates_between_slices() {
     lv_flow_v3_t flow{};
     flow.travel_ms = 100;
@@ -1815,6 +2022,13 @@ int main() {
     test_flow_v3_energy_transport_interpolates_continuously();
     test_flow_v3_energy_floor_preserves_bass_body();
     test_flow_v3_energy_floor_only_lifts_quiet_bass();
+    test_flow_v3_attack_has_no_initial_or_falling_edge_flash();
+    test_flow_v3_attack_tracks_continuous_positive_rises();
+    test_flow_v3_attack_repeats_without_refractory_timer();
+    test_flow_v3_attack_stereo_merge_is_phase_safe();
+    test_flow_v3_attack_transport_interpolates_continuously();
+    test_flow_v3_attack_integration_is_inert_at_zero();
+    test_flow_v3_attack_integration_only_tightens_existing_body();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();

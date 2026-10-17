@@ -12,6 +12,7 @@ namespace {
 constexpr float bass_lab_hue = 195.0f;
 constexpr float bass_distance_fade = 0.975f;
 constexpr float energy_floor_body_cap = 0.22f;
+constexpr float attack_blur_tightening = 0.75f;
 
 float nearest_hue(float hue, float reference) {
     while (hue - reference > 180.0f) hue -= 360.0f;
@@ -55,6 +56,17 @@ lv_rgb_t energy_color_at(const lv_flow_v3_t *bass,
     return lv_flow_v3_combined_energy_color(
         lv_flow_v3_combined_energy_sample(
             bass, mids, energy, coordinate, now_ms),
+        coordinate);
+}
+
+lv_rgb_t energy_attack_color_at(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack, float coordinate,
+    uint32_t now_ms) {
+    return lv_flow_v3_combined_energy_color(
+        lv_flow_v3_combined_energy_attack_sample(
+            bass, mids, energy, attack, coordinate, now_ms),
         coordinate);
 }
 
@@ -175,6 +187,61 @@ void lv_flow_v3_combined_energy_render(
             set_key(frame, lv_thumb_key_at(half, key),
                     energy_color_at(bass, mids, energy, coordinate,
                                     now_ms));
+        }
+    }
+}
+
+lv_flow_v3_slice_t lv_flow_v3_combined_energy_attack_sample(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack, float coordinate,
+    uint32_t now_ms) {
+    auto combined = lv_flow_v3_combined_energy_sample(
+        bass, mids, energy, coordinate, now_ms);
+    const auto articulation = lv_flow_v3_attack_sample(
+        attack, coordinate, now_ms);
+    combined.attack = std::clamp(articulation.attack, 0.0f, 1.0f);
+    const float tightening = attack_blur_tightening * combined.attack;
+    const float unblurred_body = std::clamp(
+        lv_flow_v3_sample(bass, coordinate, now_ms).body, 0.0f, 1.0f);
+    combined.body += (unblurred_body - combined.body) * tightening;
+    return combined;
+}
+
+void lv_flow_v3_combined_energy_attack_render(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack, uint32_t now_ms,
+    lv_rgb_t frame[LV_KEY_COUNT]) {
+    std::memset(frame, 0, sizeof(lv_rgb_t) * LV_KEY_COUNT);
+    for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
+        for (int col = 0; col < LV_SPECTRAL_FLOW_COLUMNS; ++col) {
+            const int distance = half == 0
+                                     ? LV_SPECTRAL_FLOW_COLUMNS - 1 - col
+                                     : col;
+            for (int row = 0; row < 5; ++row) {
+                const float coordinate = lv_spectral_flow_coordinate(
+                    half, (float)distance, (float)row);
+                set_key(frame, lv_key_at(half, col, row),
+                        energy_attack_color_at(
+                            bass, mids, energy, attack, coordinate,
+                            now_ms));
+            }
+        }
+        for (int key = 0; key < 3; ++key) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                half, 0.0f, (float)(key + 1));
+            set_key(frame, lv_utility_key_at(half, key),
+                    energy_attack_color_at(
+                        bass, mids, energy, attack, coordinate, now_ms));
+        }
+        constexpr float thumb_distance[4] = {1.25f, 0.85f, 0.45f, 0.0f};
+        for (int key = 0; key < 4; ++key) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                half, thumb_distance[key], 3.2f + key * 0.2f);
+            set_key(frame, lv_thumb_key_at(half, key),
+                    energy_attack_color_at(
+                        bass, mids, energy, attack, coordinate, now_ms));
         }
     }
 }

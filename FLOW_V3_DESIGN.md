@@ -8,9 +8,11 @@ Lab A remains available as its comparison baseline. Mid Lab was accepted as
 the frozen hue foundation on 2026-10-17. Combined Lab was accepted as their
 integration foundation on 2026-10-17. Later feature work must preserve all
 three tested behaviors. Energy Lab was accepted as the visibility-floor
-foundation on 2026-10-17.
+foundation on 2026-10-17, and its capped floor was accepted in Combined on
+2026-10-17. Attack Lab and its conservative spatial-sharpening integration
+were accepted on 2026-10-17.
 
-The capped Energy-floor integration is the current preview-only experiment.
+The next preview-only slice has not yet been selected.
 
 ## Goal
 
@@ -108,8 +110,8 @@ rendered effects:
   lightness and the Mid Lab hue.
 - The two accepted histories remain independent and unchanged. Composition is
   stateless, making regressions attributable to either input or the compositor.
-- Combined is the default v3 preview. Press `M` to cycle Combined, Mid, and
-  Bass at the same playback position.
+- Combined is the default v3 preview. Press `M` to cycle Combined, Energy,
+  Attack, Mid, and Bass at the same playback position.
 
 Combined's acceptance tests show that its body equals Bass B, its perceived
 lightness is invariant across hue both before and after the 175/255 brightness
@@ -128,21 +130,68 @@ passages can remain visible without weakening Bass B:
   creating onset flashes or beat triggers.
 - The diagnostic view uses one fixed hue. Energy controls only its continuous
   body, removing palette motion as a confounding variable.
-- Press `M` to cycle Combined, Energy, Mid, and Bass at the same playback
-  position.
+- Press `M` to cycle Combined, Energy, Attack, Mid, and Bass at the same
+  playback position.
 
-Energy must be accepted in isolation before integration. The later compositor
-may use it only as a capped visibility floor beneath Bass B's existing
-perceived-lightness curve. It must not modify Bass B's body, brighten a bass
-peak that already exceeds the floor, or become a separate visual layer.
-
-The first integration candidate maps Energy onto at most 22% of the body range
+The accepted integration maps Energy onto at most 22% of the body range
 and renders with `max(bass_body, 0.22 * energy)`. This maximum is evaluated
 only when converting the composed slice to light; the stored `body` remains
 the exact Bass B value. Consequently, a bass peak above the floor is rendered
-bit-for-bit like accepted Combined, while bass-light passages retain a dim
-version of the same ribbon. Press `E` to compare the candidate with accepted
-Combined at the same playback position.
+bit-for-bit like Combined without the floor, while bass-light passages retain
+a dim version of the same ribbon. Press `E` to compare the accepted floor with
+the no-floor baseline at the same playback position.
+
+## Attack Lab contract
+
+Attack Lab isolates fast musical articulation before it is allowed to shape
+the accepted ribbon:
+
+- All 12 mel-frequency bands contribute after fixed, song-independent log
+  compression. Left and right merge by maximum per band so panning and phase
+  cannot erase an attack.
+- Each band maintains a fast envelope (25 ms attack, 45 ms release) and a slow
+  envelope (190 ms attack, 300 ms release). Only the positive difference
+  between fast and slow contributes; the aggregate is the root mean square
+  across bands.
+- The output is continuous and proportional. There is no threshold,
+  refractory timer, binary beat trigger, tempo grid, or per-song
+  normalization.
+- Initializing on already-playing audio produces no startup pulse. Falling
+  edges produce no attack. Sustained input decays toward zero, and a second
+  rise 99 ms after the first still registers.
+- The diagnostic renderer uses one fixed cyan hue and maps the attack signal
+  to brightness. This intentionally exposes the signal; it is not the final
+  visual mapping.
+- Press `M` to compare Attack with the accepted Combined, Energy, Mid, and Bass
+  views at the same playback position, or start with `--attack-lab`.
+
+The accepted analysis cadence is approximately 33 ms. A roughly 16 ms analysis
+cadence remains a controlled future experiment only if firmware validation
+reveals latency that was not present in the preview.
+
+## Attack integration contract
+
+Combined samples Attack at the same audio timestamp and ribbon coordinate as
+the accepted Bass, Energy, and Mid properties. It tightens the existing spatial
+edge rather than rendering another effect:
+
+- With zero Attack, output is bit-for-bit the accepted Energy-floor baseline.
+- Attack continuously blends Bass B's accepted blurred body toward its
+  unblurred body by at most 75%. The result always remains between those two
+  body values.
+- Attack cannot create body from silence, raise the Energy floor, choose hue,
+  change saturation, or leave the range bounded by the accepted blurred body
+  and its underlying unblurred body.
+- There is no Attack-colored layer, dedicated lane, or independent brightness
+  flash. All properties remain one transported ribbon.
+- Attack shaping is enabled by default in Combined. Press `A` to compare it
+  with the exact Energy-floor baseline at the same playback position.
+
+The isolated lab showed occasional blink-like sharp transients because its
+diagnostic deliberately mapped articulation straight to brightness. Those
+flashes are not part of the accepted compositor mapping. The integrated effect
+was accepted after subjective A/B checks across reference tracks with sparse
+plucks, repeated bass hits, and dense low-frequency passages.
 
 ## Spatial and temporal rules
 
