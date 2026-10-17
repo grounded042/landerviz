@@ -25,6 +25,7 @@ constexpr int kSampleRate = 15625;
 constexpr int kWindowWidth = 900;
 constexpr int kWindowHeight = 540;
 constexpr uint8_t kBrightnessCap = 175;
+constexpr int kGlowTextureSize = 112;
 
 struct Options {
     std::string input;
@@ -32,6 +33,7 @@ struct Options {
     int frame_limit = 0;
     int flow_travel_ms = LV_SPECTRAL_FLOW_TRAVEL_MS;
     bool demo = false;
+    bool kick_demo = false;
 };
 
 struct KeyRect {
@@ -42,8 +44,9 @@ struct KeyRect {
 void usage(const char *program) {
     std::fprintf(stderr,
                  "usage: %s [--fps N] [--travel-ms N] [--frames N] FILE\n"
-                 "       %s [--fps N] [--travel-ms N] [--frames N] --demo\n",
-                 program, program);
+                 "       %s [--fps N] [--travel-ms N] [--frames N] --demo\n"
+                 "       %s [--fps N] [--travel-ms N] [--frames N] --demo-kicks\n",
+                 program, program, program);
 }
 
 bool parse_positive_int(const char *text, int *value) {
@@ -59,6 +62,8 @@ bool parse_options(int argc, char **argv, Options *options) {
         const std::string argument = argv[i];
         if (argument == "--demo") {
             options->demo = true;
+        } else if (argument == "--demo-kicks") {
+            options->kick_demo = true;
         } else if (argument == "--fps" || argument == "--frames" ||
                    argument == "--travel-ms") {
             if (++i >= argc) return false;
@@ -81,7 +86,10 @@ bool parse_options(int argc, char **argv, Options *options) {
             return false;
         }
     }
-    return options->demo == options->input.empty();
+    const int sources = (options->demo ? 1 : 0) +
+                        (options->kick_demo ? 1 : 0) +
+                        (!options->input.empty() ? 1 : 0);
+    return sources == 1;
 }
 
 std::vector<float> demo_audio() {
@@ -101,6 +109,26 @@ std::vector<float> demo_audio() {
         audio[(size_t)sample * 2] = 0.62f * kick + sweep;
         audio[(size_t)sample * 2 + 1] =
             0.52f * kick + 0.35f * std::sin(2.0f * pi * 880.0f * time);
+    }
+    return audio;
+}
+
+std::vector<float> kick_demo_audio() {
+    constexpr int seconds = 20;
+    constexpr float pi = 3.14159265358979323846f;
+    std::vector<float> audio((size_t)seconds * kSampleRate * 2);
+    for (int sample = 0; sample < seconds * kSampleRate; ++sample) {
+        const float time = (float)sample / kSampleRate;
+        float kick = 0.0f;
+        if (time >= 0.5f) {
+            const float phase = std::fmod(time - 0.5f, 0.5f);
+            if (phase < 0.18f) {
+                kick = 0.75f * std::exp(-phase * 18.0f) *
+                       std::sin(2.0f * pi * 74.0f * phase);
+            }
+        }
+        audio[(size_t)sample * 2] = kick;
+        audio[(size_t)sample * 2 + 1] = kick;
     }
     return audio;
 }
@@ -159,7 +187,8 @@ std::vector<float> decode_audio(const std::string &path) {
 
 std::array<KeyRect, LV_KEY_COUNT> keyboard_geometry() {
     std::array<KeyRect, LV_KEY_COUNT> keys{};
-    constexpr int key_size = 42;
+    constexpr int key_size = 38;
+    constexpr int key_inset = 2;
     constexpr int spacing = 49;
     constexpr int column_offset[6] = {20, 9, 0, 5, 15, 25};
 
@@ -169,8 +198,8 @@ std::array<KeyRect, LV_KEY_COUNT> keyboard_geometry() {
             for (int col = 0; col < 6; ++col) {
                 const int led = lv_key_at(half, col, row);
                 if (led < 0) continue;
-                keys[led] = {{base_x + col * spacing,
-                              30 + row * 58 + column_offset[col],
+                keys[led] = {{base_x + col * spacing + key_inset,
+                              30 + row * 58 + column_offset[col] + key_inset,
                               key_size, key_size},
                              true};
             }
@@ -179,9 +208,11 @@ std::array<KeyRect, LV_KEY_COUNT> keyboard_geometry() {
 
     for (int key = 0; key < 3; ++key) {
         keys[lv_utility_key_at(0, key)] =
-            {{320, 68 + key * 60, key_size, key_size}, true};
+            {{320 + key_inset, 68 + key * 60 + key_inset,
+              key_size, key_size}, true};
         keys[lv_utility_key_at(1, key)] =
-            {{498, 68 + key * 60, key_size, key_size}, true};
+            {{498 + key_inset, 68 + key * 60 + key_inset,
+              key_size, key_size}, true};
     }
 
     constexpr int left_thumb_x[4] = {240, 282, 320, 352};
@@ -189,9 +220,11 @@ std::array<KeyRect, LV_KEY_COUNT> keyboard_geometry() {
     constexpr int thumb_y[4] = {350, 378, 414, 450};
     for (int key = 0; key < 4; ++key) {
         keys[lv_thumb_key_at(0, key)] =
-            {{left_thumb_x[key], thumb_y[key], key_size, key_size}, true};
+            {{left_thumb_x[key] + key_inset, thumb_y[key] + key_inset,
+              key_size, key_size}, true};
         keys[lv_thumb_key_at(1, key)] =
-            {{right_thumb_x[key], thumb_y[key], key_size, key_size}, true};
+            {{right_thumb_x[key] + key_inset, thumb_y[key] + key_inset,
+              key_size, key_size}, true};
     }
     return keys;
 }
@@ -204,9 +237,54 @@ lv_rgb_t cap_color(lv_rgb_t color) {
     };
 }
 
-void draw_keyboard(SDL_Renderer *renderer,
-                   const std::array<KeyRect, LV_KEY_COUNT> &keys,
-                   const lv_rgb_t frame[LV_KEY_COUNT]) {
+lv_rgb_t preview_light_color(lv_rgb_t color) {
+    const lv_rgb_t capped = cap_color(color);
+    const auto lift = [](uint8_t channel) {
+        const float normalized = (float)channel / 255.0f;
+        return (uint8_t)std::lround(
+            255.0f * std::pow(normalized, 0.72f));
+    };
+    return {lift(capped.r), lift(capped.g), lift(capped.b)};
+}
+
+SDL_Texture *create_glow_texture(SDL_Renderer *renderer) {
+    SDL_PixelFormat *format = SDL_AllocFormat(SDL_PIXELFORMAT_RGBA8888);
+    if (!format) return nullptr;
+
+    std::array<uint32_t, kGlowTextureSize * kGlowTextureSize> pixels{};
+    const float center = ((float)kGlowTextureSize - 1.0f) * 0.5f;
+    for (int y = 0; y < kGlowTextureSize; ++y) {
+        for (int x = 0; x < kGlowTextureSize; ++x) {
+            const float dx = ((float)x - center) / center;
+            const float dy = ((float)y - center) / center;
+            const float distance = std::sqrt(dx * dx + dy * dy);
+            const float fade = std::clamp((distance - 0.18f) / 0.82f,
+                                          0.0f, 1.0f);
+            const float smooth = fade * fade * (3.0f - 2.0f * fade);
+            const uint8_t alpha =
+                (uint8_t)std::lround(78.0f * (1.0f - smooth));
+            pixels[(size_t)y * kGlowTextureSize + x] =
+                SDL_MapRGBA(format, 255, 255, 255, alpha);
+        }
+    }
+    SDL_FreeFormat(format);
+
+    SDL_Texture *texture = SDL_CreateTexture(
+        renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC,
+        kGlowTextureSize, kGlowTextureSize);
+    if (!texture) return nullptr;
+    if (SDL_UpdateTexture(texture, nullptr, pixels.data(),
+                          kGlowTextureSize * (int)sizeof(uint32_t)) != 0 ||
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_ADD) != 0) {
+        SDL_DestroyTexture(texture);
+        return nullptr;
+    }
+    return texture;
+}
+
+void draw_keyboard_flat(SDL_Renderer *renderer,
+                        const std::array<KeyRect, LV_KEY_COUNT> &keys,
+                        const lv_rgb_t frame[LV_KEY_COUNT]) {
     SDL_SetRenderDrawColor(renderer, 10, 12, 18, 255);
     SDL_RenderClear(renderer);
 
@@ -229,6 +307,95 @@ void draw_keyboard(SDL_Renderer *renderer,
         SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, 255);
         SDL_RenderFillRect(renderer, &light);
     }
+}
+
+void draw_keyboard_realistic(
+    SDL_Renderer *renderer, SDL_Texture *glow,
+    const std::array<KeyRect, LV_KEY_COUNT> &keys,
+    const lv_rgb_t frame[LV_KEY_COUNT]) {
+    SDL_SetRenderDrawColor(renderer, 7, 9, 14, 255);
+    SDL_RenderClear(renderer);
+
+    // Overlapping expanded rectangles suggest the two keyboard chassis while
+    // preserving the real staggered and thumb-cluster geometry.
+    for (int key = 0; key < LV_KEY_COUNT; ++key) {
+        if (!keys[key].valid) continue;
+        SDL_Rect shadow = keys[key].rect;
+        shadow.x -= 7;
+        shadow.y -= 5;
+        shadow.w += 18;
+        shadow.h += 18;
+        SDL_SetRenderDrawColor(renderer, 1, 2, 4, 255);
+        SDL_RenderFillRect(renderer, &shadow);
+    }
+    for (int key = 0; key < LV_KEY_COUNT; ++key) {
+        if (!keys[key].valid) continue;
+        SDL_Rect plate = keys[key].rect;
+        plate.x -= 5;
+        plate.y -= 5;
+        plate.w += 10;
+        plate.h += 10;
+        SDL_SetRenderDrawColor(renderer, 17, 20, 28, 255);
+        SDL_RenderFillRect(renderer, &plate);
+    }
+
+    for (int key = 0; key < LV_KEY_COUNT; ++key) {
+        if (!keys[key].valid) continue;
+        const lv_rgb_t color = preview_light_color(frame[key]);
+        if (color.r == 0 && color.g == 0 && color.b == 0) continue;
+        SDL_SetTextureColorMod(glow, color.r, color.g, color.b);
+        SDL_Rect destination{
+            keys[key].rect.x + (keys[key].rect.w - kGlowTextureSize) / 2,
+            keys[key].rect.y + (keys[key].rect.h - kGlowTextureSize) / 2,
+            kGlowTextureSize,
+            kGlowTextureSize,
+        };
+        SDL_RenderCopy(renderer, glow, nullptr, &destination);
+    }
+
+    for (int key = 0; key < LV_KEY_COUNT; ++key) {
+        if (!keys[key].valid) continue;
+        SDL_Rect key_shadow = keys[key].rect;
+        key_shadow.x += 3;
+        key_shadow.y += 4;
+        SDL_SetRenderDrawColor(renderer, 2, 3, 6, 230);
+        SDL_RenderFillRect(renderer, &key_shadow);
+
+        const lv_rgb_t color = preview_light_color(frame[key]);
+        SDL_SetRenderDrawColor(renderer, 37, 40, 49, 255);
+        SDL_RenderFillRect(renderer, &keys[key].rect);
+
+        SDL_Rect face = keys[key].rect;
+        face.x += 6;
+        face.y += 6;
+        face.w -= 12;
+        face.h -= 12;
+        const auto face_channel = [](uint8_t channel) {
+            return (uint8_t)std::min(255, 23 + (int)channel * 3 / 5);
+        };
+        SDL_SetRenderDrawColor(renderer, face_channel(color.r),
+                               face_channel(color.g), face_channel(color.b),
+                               255);
+        SDL_RenderFillRect(renderer, &face);
+
+        SDL_SetRenderDrawColor(renderer,
+                               (uint8_t)std::min(255, 52 + color.r / 3),
+                               (uint8_t)std::min(255, 55 + color.g / 3),
+                               (uint8_t)std::min(255, 64 + color.b / 3), 255);
+        SDL_RenderDrawLine(renderer, face.x, face.y,
+                           face.x + face.w - 1, face.y);
+    }
+}
+
+void draw_keyboard(SDL_Renderer *renderer, SDL_Texture *glow,
+                   bool realistic_lighting,
+                   const std::array<KeyRect, LV_KEY_COUNT> &keys,
+                   const lv_rgb_t frame[LV_KEY_COUNT]) {
+    if (realistic_lighting) {
+        draw_keyboard_realistic(renderer, glow, keys, frame);
+    } else {
+        draw_keyboard_flat(renderer, keys, frame);
+    }
     SDL_RenderPresent(renderer);
 }
 
@@ -242,7 +409,7 @@ uint16_t adc_sample(float sample) {
 void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
                     lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT],
                     lv_audio_activity_t *activity, lv_visualizer_t *visualizer,
-                    size_t *analyzed_frames) {
+                    size_t *analyzed_frames, bool kick_packets_enabled) {
     const uint16_t flow_travel_ms =
         lv_visualizer_flow_travel_ms(visualizer);
     SDL_ClearQueuedAudio(device);
@@ -253,6 +420,7 @@ void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
     *activity = {};
     *visualizer = {};
     lv_visualizer_set_flow_travel_ms(visualizer, flow_travel_ms);
+    lv_visualizer_set_flow_kick_packets(visualizer, kick_packets_enabled);
     *analyzed_frames = 0;
 }
 
@@ -265,8 +433,11 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    std::vector<float> audio =
-        options.demo ? demo_audio() : decode_audio(options.input);
+    std::vector<float> audio = options.demo
+                                   ? demo_audio()
+                                   : (options.kick_demo
+                                          ? kick_demo_audio()
+                                          : decode_audio(options.input));
     if (audio.empty()) {
         std::fprintf(stderr, "no audio samples available\n");
         return 1;
@@ -296,6 +467,14 @@ int main(int argc, char **argv) {
         return 1;
     }
     SDL_RenderSetLogicalSize(renderer, kWindowWidth, kWindowHeight);
+    SDL_Texture *glow = create_glow_texture(renderer);
+    if (!glow) {
+        std::fprintf(stderr, "SDL glow texture failed: %s\n", SDL_GetError());
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 1;
+    }
 
     SDL_AudioSpec desired{};
     desired.freq = kSampleRate;
@@ -307,6 +486,7 @@ int main(int argc, char **argv) {
         SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
     if (!device) {
         std::fprintf(stderr, "SDL audio failed: %s\n", SDL_GetError());
+        SDL_DestroyTexture(glow);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -329,13 +509,17 @@ int main(int argc, char **argv) {
     lv_rgb_t frame[LV_KEY_COUNT]{};
     size_t analyzed_frames = 0;
     reset_playback(device, audio, analysis, &activity, &visualizer,
-                   &analyzed_frames);
+                   &analyzed_frames, options.kick_demo);
     SDL_PauseAudioDevice(device, 0);
 
     lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
     bool running = true;
     bool paused = false;
+    bool realistic_lighting = true;
     int rendered_frames = 0;
+    uint32_t detected_kicks = 0;
+    uint32_t observed_kick_ms = 0;
+    bool observed_kick = false;
     const uint64_t performance_frequency = SDL_GetPerformanceFrequency();
     uint64_t playback_started_at = SDL_GetPerformanceCounter();
     uint64_t paused_at = 0;
@@ -366,7 +550,11 @@ int main(int argc, char **argv) {
                     break;
                 case SDLK_r:
                     reset_playback(device, audio, analysis, &activity,
-                                   &visualizer, &analyzed_frames);
+                                   &visualizer, &analyzed_frames,
+                                   options.kick_demo);
+                    detected_kicks = 0;
+                    observed_kick_ms = 0;
+                    observed_kick = false;
                     playback_started_at = SDL_GetPerformanceCounter();
                     total_paused_ticks = 0;
                     paused_at = paused ? playback_started_at : 0;
@@ -386,6 +574,9 @@ int main(int argc, char **argv) {
                 case SDLK_3: mode = lv_viz_mode_t::PULSE; break;
                 case SDLK_4: mode = lv_viz_mode_t::VU; break;
                 case SDLK_5: mode = lv_viz_mode_t::IDLE; break;
+                case SDLK_g:
+                    realistic_lighting = !realistic_lighting;
+                    break;
                 case SDLK_LEFTBRACKET:
                     options.fps = std::max(1, options.fps - 1);
                     next_render_counter = (double)SDL_GetPerformanceCounter();
@@ -433,10 +624,13 @@ int main(int argc, char **argv) {
             (size_t)((long double)elapsed_ticks * kSampleRate /
                      performance_frequency));
 
-        if (options.demo && !paused &&
+        if ((options.demo || options.kick_demo) && !paused &&
             played_frames >= total_audio_frames && analyzed_frames > 0) {
             reset_playback(device, audio, analysis, &activity, &visualizer,
-                           &analyzed_frames);
+                           &analyzed_frames, options.kick_demo);
+            detected_kicks = 0;
+            observed_kick_ms = 0;
+            observed_kick = false;
             playback_started_at = SDL_GetPerformanceCounter();
             total_paused_ticks = 0;
             SDL_PauseAudioDevice(device, 0);
@@ -472,16 +666,35 @@ int main(int argc, char **argv) {
         if (!paused || rendered_frames == 0) {
             lv_visualizer_render(&visualizer, mode, analysis, activity.active,
                                  now_ms, frame);
+            if (options.kick_demo && visualizer.flow_kick.kick_seen &&
+                (!observed_kick || visualizer.flow_kick.last_kick_ms !=
+                                       observed_kick_ms)) {
+                ++detected_kicks;
+                observed_kick = true;
+                observed_kick_ms = visualizer.flow_kick.last_kick_ms;
+            }
         }
-        draw_keyboard(renderer, keys, frame);
+        draw_keyboard(renderer, glow, realistic_lighting, keys, frame);
 
         char title[512];
+        char source_status[256];
+        if (options.kick_demo) {
+            const uint32_t expected_kicks =
+                now_ms < 500 ? 0 : 1 + (now_ms - 500) / 500;
+            std::snprintf(source_status, sizeof(source_status),
+                          "kick test %u/%u detected", detected_kicks,
+                          expected_kicks);
+        } else {
+            std::snprintf(source_status, sizeof(source_status), "%s",
+                          options.demo ? "demo" : options.input.c_str());
+        }
         std::snprintf(
             title, sizeof(title),
-            "LanderViz — %s — %d fps — %u ms/column — [1-5 mode] [,/. speed] [brackets: fps] [space pause] — %s",
+            "LanderViz — %s — %d fps — %u ms/column — %s light — [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
             lv_viz_mode_name(mode), options.fps,
             lv_visualizer_flow_travel_ms(&visualizer),
-            options.demo ? "demo" : options.input.c_str());
+            realistic_lighting ? "realistic" : "flat",
+            source_status);
         SDL_SetWindowTitle(window, title);
 
         ++rendered_frames;
@@ -491,6 +704,7 @@ int main(int argc, char **argv) {
     }
 
     SDL_CloseAudioDevice(device);
+    SDL_DestroyTexture(glow);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

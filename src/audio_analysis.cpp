@@ -143,6 +143,14 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
                         float input_gain) {
     static const uint8_t band_start[LV_BAND_COUNT] = {1, 2, 3, 5, 7, 10, 14, 20, 28, 40, 57, 80};
     static const uint8_t band_end[LV_BAND_COUNT] = {1, 2, 4, 6, 9, 13, 19, 27, 39, 56, 79, 128};
+    // Lower edge, center, and upper edge for twelve triangular bands from
+    // 60 Hz to 7.5 kHz, equally spaced on the perceptual mel scale. Values are
+    // FFT-bin coordinates at 15.625 kHz / 256 samples.
+    static constexpr float mel_points[LV_MEL_BAND_COUNT + 2] = {
+        0.98304f, 3.48306f, 6.48501f, 10.08968f, 14.41808f,
+        19.61552f, 25.85646f, 33.35044f, 42.34901f, 53.15427f,
+        66.12895f, 81.70862f, 100.41629f, 122.88f,
+    };
     // Analysis is called sequentially for left and right. Keep the FFT scratch
     // space out of the RP2040's small stack and reuse it between channels.
     static float re[LV_FFT_N];
@@ -187,6 +195,36 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
         else analysis->band_level[band] +=
                  (peak - analysis->band_level[band]) * 0.4375f;
         if (analysis->band_level[band] > 1.0f) analysis->band_level[band] = 1.0f;
+    }
+
+    for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
+        const float lower = mel_points[band];
+        const float center = mel_points[band + 1];
+        const float upper = mel_points[band + 2];
+        float weighted_power = 0.0f;
+        const int first_bin = std::max(1, (int)lower);
+        const int last_bin = std::min(
+            LV_FFT_N / 2 - 1, (int)std::ceil(upper));
+        for (int bin = first_bin; bin <= last_bin; ++bin) {
+            const float position = (float)bin;
+            float weight = 0.0f;
+            if (position >= lower && position <= center) {
+                weight = (position - lower) / (center - lower);
+            } else if (position > center && position <= upper) {
+                weight = (upper - position) / (upper - center);
+            }
+            weighted_power += magnitude[bin] * magnitude[bin] * weight;
+        }
+        const float level = std::sqrt(weighted_power);
+        if (level > analysis->mel_level[band]) {
+            analysis->mel_level[band] = level;
+        } else {
+            analysis->mel_level[band] +=
+                (level - analysis->mel_level[band]) * 0.4375f;
+        }
+        if (analysis->mel_level[band] > 1.0f) {
+            analysis->mel_level[band] = 1.0f;
+        }
     }
 
     const float bass = (analysis->band_level[0] + analysis->band_level[1] +

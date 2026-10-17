@@ -77,6 +77,7 @@ WAV, FLAC, and other common audio files; SDL2 provides playback and draws all
 ```sh
 nix run .#preview -- ~/Music/test-track.mp3
 nix run .#preview -- --demo
+nix run .#preview -- --demo-kicks
 nix run .#preview -- --fps 25 ~/Music/test-track.mp3
 nix run .#preview -- --travel-ms 110 ~/Music/test-track.mp3
 ```
@@ -90,11 +91,16 @@ open -n result-preview/LanderViz.app --args --fps 30 "/absolute/path/song.mp3"
 ```
 
 Use left/right or number keys 1–5 to change mode, space to pause, `R` to
-restart, `[`/`]` to change the simulated frame rate, comma/period to make FLOW
+restart, `G` to compare realistic light spill with the flat diagnostic view,
+`[`/`]` to change the simulated frame rate, comma/period to make FLOW
 slower/faster in 10 ms increments, and escape or `Q` to quit. The title bar
-shows the active mode, frame rate, and FLOW travel time. `--travel-ms N` sets
-the initial 50–1000 ms per-column travel time. `--frames N` exits after N
-rendered frames and is intended for automated smoke tests.
+shows the active mode, frame rate, FLOW travel time, and lighting style.
+`--travel-ms N` sets the initial 50–1000 ms per-column travel time. `--frames
+N` exits after N rendered frames and is intended for automated smoke tests.
+`--demo-kicks` plays an isolated 120 BPM kick train and reports detected versus
+generated kicks in the title bar. Kick packets are enabled only in that
+diagnostic mode while the detector is being calibrated; normal FLOW previews
+use the smooth, constant-brightness color ribbon without kick accents.
 
 Before flashing a Moonlander build, confirm the keyboard's hardware revision.
 ZSA's command-line flasher can accept the local file:
@@ -274,19 +280,16 @@ shared motion, smoothing, sampling, and validation rules used by every mode.
 
 The five selectable modes are:
 
-- `FLOW` (default): spectral flux (newly arriving energy) across all 12
-  frequency bands is compared across bass, musical body, and high-frequency
-  presence regions. The strongest region wins, then its strongest individual
-  band selects the hue instead of averaging several colors toward the middle.
-  Region weighting prevents cymbals from permanently washing the result blue.
-  The kick detector adds brightness but never overrides the selected hue, while
-  a shared adaptive gain preserves dynamics. A timestamped color ribbon moves
-  outward at roughly 110 ms per column. Fractional physical coordinates
-  stagger every row, a five-sample spatial filter spreads each transition
-  across neighboring keys,
-  and a subtle traveling brightness wave keeps same-hue motion visible. Hue is
-  rendered in HSV (hue–saturation–value) space so intermediate colors remain
-  saturated instead of becoming pastel RGB crossfades;
+- `FLOW` (default): 12 overlapping mel-scale bands from 60 Hz to 7.5 kHz
+  capture the current perceptual spectrum. Its weighted center, biased toward
+  the strongest band, creates a fully saturated hue/brightness packet on every
+  analysis frame. Mel-band and loudness peak followers keep quieter musical
+  detail visible without flattening every packet to the same brightness. A
+  timestamped packet history moves outward at roughly 110 ms per column.
+  Fractional physical coordinates stagger every row, and a five-sample spatial
+  filter spreads each transition across neighboring keys. Hue-space
+  interpolation avoids pastel RGB blends, and the ribbon has no unrelated
+  periodic brightness animation;
 - `SPECTRUM`: left audio drives the left keyboard half and right audio drives
   the right half; each half has bass at the outside and treble at the center,
   utility keys mirror the adjacent treble column, and thumbs pulse with bass;

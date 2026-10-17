@@ -6,6 +6,7 @@ enum {
     LV_AUDIO_CHANNEL_COUNT = 2,
     LV_FFT_N = 256,
     LV_BAND_COUNT = 12,
+    LV_MEL_BAND_COUNT = 12,
     LV_ADC_MID = 2048,
     // Capture every window so frequency bins remain unchanged, but run the
     // stereo FFT on every other window: about 30.5 analyses per second.
@@ -14,6 +15,9 @@ enum {
 
 typedef struct {
     float band_level[LV_BAND_COUNT];
+    // Overlapping triangular bands spaced on the perceptual mel scale.
+    // FLOW consumes these independently from the legacy meter bands above.
+    float mel_level[LV_MEL_BAND_COUNT];
     float bass_env;
     float bass_avg;
     float rms_level;

@@ -14,24 +14,35 @@ void set_key(lv_rgb_t frame[LV_KEY_COUNT], int key, lv_rgb_t color) {
 void render_flow(lv_visualizer_t *visualizer,
                  const lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT],
                  uint32_t now_ms, lv_rgb_t frame[LV_KEY_COUNT]) {
-    static_assert((int)LV_SPECTRAL_FLOW_BANDS == (int)LV_BAND_COUNT);
+    static_assert((int)LV_SPECTRAL_FLOW_BANDS == (int)LV_MEL_BAND_COUNT);
 
+    float flow_bands[LV_AUDIO_CHANNEL_COUNT][LV_SPECTRAL_FLOW_BANDS] = {};
+    float bass_transient[LV_AUDIO_CHANNEL_COUNT] = {};
+    float shared_bass = 0.0f;
     for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
         const bool gate_open =
             lv_meter_level(audio[half].rms_level * 1.41421356f) > 0.0f;
-        float flow_bands[LV_SPECTRAL_FLOW_BANDS] = {};
         if (gate_open) {
             for (int band = 0; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-                flow_bands[band] =
-                    lv_perceptual_level(audio[half].band_level[band]);
+                flow_bands[half][band] =
+                    lv_perceptual_level(audio[half].mel_level[band]);
             }
+            bass_transient[half] =
+                lv_perceptual_level(audio[half].bass_env);
+            // Kick timing is shared so a panned bass hit launches one
+            // coherent packet across both keyboard halves. Rendering remains
+            // stereo because each half keeps its own mel spectrum.
+            shared_bass = std::max(shared_bass, audio[half].bass_env);
         }
-        const float bass_transient = gate_open
-                                         ? lv_perceptual_level(
-                                               audio[half].bass_env)
-                                         : 0.0f;
-        lv_spectral_flow_update(&visualizer->flow[half], flow_bands,
-                                bass_transient, now_ms);
+    }
+    const lv_kick_event_t kick = lv_kick_detector_update(
+        &visualizer->flow_kick, shared_bass, now_ms);
+
+    for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
+        const lv_kick_event_t *visible_kick =
+            visualizer->flow_kick_packets_enabled ? &kick : nullptr;
+        lv_spectral_flow_update(&visualizer->flow[half], flow_bands[half],
+                                bass_transient[half], now_ms, visible_kick);
 
         for (int col = 0; col < LV_SPECTRAL_FLOW_COLUMNS; ++col) {
             const int distance = half == 0
@@ -212,6 +223,11 @@ uint16_t lv_visualizer_flow_travel_ms(const lv_visualizer_t *visualizer) {
     return visualizer->flow[0].travel_ms > 0
                ? visualizer->flow[0].travel_ms
                : (uint16_t)LV_SPECTRAL_FLOW_TRAVEL_MS;
+}
+
+void lv_visualizer_set_flow_kick_packets(lv_visualizer_t *visualizer,
+                                         bool enabled) {
+    visualizer->flow_kick_packets_enabled = enabled;
 }
 
 void lv_visualizer_render(

@@ -17,10 +17,12 @@ enum class lv_viz_mode_t : uint8_t {
 
 struct lv_visualizer_t {
     lv_spectral_flow_t flow[LV_AUDIO_CHANNEL_COUNT];
+    lv_kick_detector_t flow_kick;
     float spectrum_peaks[LV_AUDIO_CHANNEL_COUNT][6];
     float vu_levels[LV_AUDIO_CHANNEL_COUNT];
     uint32_t last_pulse_hue_ms;
     uint8_t pulse_hue;
+    bool flow_kick_packets_enabled;
 };
 
 const char *lv_viz_mode_name(lv_viz_mode_t mode);
@@ -30,6 +32,11 @@ const char *lv_viz_mode_name(lv_viz_mode_t mode);
 void lv_visualizer_set_flow_travel_ms(lv_visualizer_t *visualizer,
                                       uint16_t travel_ms);
 uint16_t lv_visualizer_flow_travel_ms(const lv_visualizer_t *visualizer);
+
+// Kick packets remain opt-in while their detector is calibrated. The base
+// FLOW ribbon is unaffected.
+void lv_visualizer_set_flow_kick_packets(lv_visualizer_t *visualizer,
+                                         bool enabled);
 
 // Render all 72 Moonlander LEDs. When audio_present is false, every mode except
 // IDLE renders the aurora so preview and firmware share identical quiet-state

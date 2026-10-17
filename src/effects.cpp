@@ -7,37 +7,20 @@
 
 namespace {
 
-constexpr float spectral_flux_floor = 0.12f;
-constexpr float spectral_hue_time_constant_ms = 180.0f;
-constexpr float spectral_value_attack_ms = 70.0f;
-constexpr float spectral_value_release_ms = 180.0f;
 constexpr float spectral_row_phase = 0.11f;
 constexpr float spectral_blur_offsets[5] = {-0.70f, -0.35f, 0.0f, 0.35f,
                                              0.70f};
 constexpr float spectral_blur_weights[5] = {1.0f, 4.0f, 6.0f, 4.0f, 1.0f};
-constexpr float spectral_carrier_wavelength = 2.5f;
 constexpr uint32_t spectral_flow_stale_ms = 2000;
+constexpr uint32_t spectral_kick_refractory_ms = 180;
+constexpr uint32_t spectral_event_release_ms = 66;
+constexpr float spectral_lane_peak_release_ms = 3500.0f;
+constexpr float spectral_lane_smoothing_ms = 100.0f;
+constexpr float spectral_hue_slew_per_frame = 8.0f;
+constexpr float spectral_value_attack_ms = 70.0f;
+constexpr float spectral_value_release_ms = 160.0f;
 
-struct spectral_region_t {
-    int first_band;
-    int last_band;
-    float event_weight;
-};
-
-constexpr spectral_region_t spectral_regions[3] = {
-    {0, 2, 1.25f},  // bass and kick body
-    {3, 7, 1.10f},  // guitar and melodic body
-    {8, 11, 0.72f}, // presence, cymbals, and upper harmonics
-};
-
-// The body palette crosses the red end of the hue wheel instead of taking the
-// long route through green and blue. Negative values are intentional aliases
-// for hues just below 256.
-constexpr float spectral_band_hues[LV_SPECTRAL_FLOW_BANDS] = {
-    0.0f, 14.0f, 28.0f,
-    42.0f, 10.0f, -20.0f, -55.0f, -80.0f,
-    126.0f, 148.0f, 174.0f, 204.0f,
-};
+constexpr float spectral_kick_hue = 8.0f;
 
 float clamp_level(float level) {
     return std::clamp(level, 0.0f, 1.0f);
@@ -62,25 +45,27 @@ float nearest_hue(float hue, float reference) {
     return hue;
 }
 
-float fast_carrier_cos(float cycles) {
-    // Linear interpolation through one 32-sample cosine cycle avoids dozens
-    // of software floating-point cosine calls on every RP2040 frame.
-    static constexpr int8_t cosine[32] = {
-        127, 125, 117, 106, 90, 71, 49, 25,
-        0, -25, -49, -71, -90, -106, -117, -125,
-        -127, -125, -117, -106, -90, -71, -49, -25,
-        0, 25, 49, 71, 90, 106, 117, 125,
-    };
-    const float scaled = cycles * 32.0f;
-    int base = (int)scaled;
-    if (scaled < (float)base) --base;
-    const float fraction = scaled - (float)base;
-    int index = base % 32;
-    if (index < 0) index += 32;
-    const int next = (index + 1) & 31;
-    return ((float)cosine[index] +
-            ((float)cosine[next] - cosine[index]) * fraction) /
-           127.0f;
+bool rgb_mix_hue(const float channel[LV_SPECTRAL_COLOR_LANES],
+                 float *hue) {
+    const float red = channel[0];
+    const float green = channel[1];
+    const float blue = channel[2];
+    const float maximum = std::max({red, green, blue});
+    const float minimum = std::min({red, green, blue});
+    const float chroma = maximum - minimum;
+    // Near-gray mixtures have no stable hue. Retaining the previous hue is
+    // preferable to magnifying tiny analyzer noise into a full color jump.
+    if (chroma < 0.06f) return false;
+
+    if (maximum == red) {
+        *hue = 42.6666667f * (green - blue) / chroma;
+    } else if (maximum == green) {
+        *hue = 85.3333333f + 42.6666667f * (blue - red) / chroma;
+    } else {
+        *hue = 170.6666667f + 42.6666667f * (red - green) / chroma;
+    }
+    *hue = wrap_hue(*hue);
+    return true;
 }
 
 float fast_distance_decay(float coordinate) {
@@ -102,133 +87,119 @@ float fast_distance_decay(float coordinate) {
 void spectral_source_hsv(
     lv_spectral_flow_t *flow,
     const float band_level[LV_SPECTRAL_FLOW_BANDS], float bass_transient,
-    bool reset_analysis, uint32_t elapsed_ms) {
+    const lv_kick_event_t *kick, bool reset_analysis,
+    uint32_t elapsed_ms, uint32_t now_ms) {
+    (void)bass_transient;
     if (reset_analysis) {
-        flow->hue_initialized = false;
-        flow->gain_peak = 0.0f;
+        flow->base_hue = 0.0f;
+        flow->base_value = 0.0f;
+        flow->source_hue = 0.0f;
         flow->source_value = 0.0f;
-        flow->previous_bass_transient = 0.0f;
-        flow->bass_impulse = 0.0f;
-        for (int band = 0; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-            flow->previous_band_level[band] = 0.0f;
+        flow->hue_initialized = false;
+        for (int lane = 0; lane < LV_SPECTRAL_COLOR_LANES; ++lane) {
+            flow->lane_peak[lane] = 0.0f;
+            flow->lane_level[lane] = 0.0f;
         }
     }
 
-    const float bass_level = clamp_level(bass_transient);
-    if (!reset_analysis && elapsed_ms > 0) {
-        flow->bass_impulse *=
-            std::exp(-(float)elapsed_ms / 90.0f);
-    }
-    if (bass_level > flow->previous_bass_transient + 0.03f) {
-        flow->bass_impulse = std::max(flow->bass_impulse, bass_level);
-    }
-    flow->previous_bass_transient = bass_level;
-
+    float level[LV_SPECTRAL_FLOW_BANDS] = {};
     float energy = 0.0f;
-    float region_flux[3] = {};
-    float region_peak[3] = {};
-    int region_dominant_band[3] = {0, 3, 8};
     for (int band = 0; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-        const float level = clamp_level(band_level[band]);
-        energy = std::max(energy, level);
-
-        // Spectral flux measures only newly arriving energy. Dividing the rise
-        // by the band's previous level lets a quieter cymbal change compete
-        // with a much louder but steady bass line.
-        const float rise = std::max(0.0f,
-                                    level - flow->previous_band_level[band]);
-        const float relative_flux =
-            rise / std::max(flow->previous_band_level[band], 0.10f);
-        int region = band <= 2 ? 0 : (band <= 7 ? 1 : 2);
-        region_flux[region] += relative_flux;
-        if (relative_flux > region_peak[region]) {
-            region_dominant_band[region] = band;
+        level[band] = clamp_level(band_level[band]);
+        energy = std::max(energy, level[band]);
+    }
+    // Scott Lawson's scroll visualization groups the spectrum into broad RGB
+    // regions. Doing that here prevents neighboring mel filters from fighting
+    // over the color while independent peak tracking lets each region remain
+    // visible despite different absolute energy.
+    float lane_input[LV_SPECTRAL_COLOR_LANES] = {};
+    for (int lane = 0; lane < LV_SPECTRAL_COLOR_LANES; ++lane) {
+        float power = 0.0f;
+        for (int band = lane * 4; band < lane * 4 + 4; ++band) {
+            power += level[band] * level[band];
         }
-        region_peak[region] = std::max(region_peak[region], relative_flux);
-        flow->previous_band_level[band] = level;
+        lane_input[lane] = std::sqrt(power * 0.25f);
+    }
+    const float peak_release = elapsed_ms > 0
+                                   ? std::exp(-(float)elapsed_ms /
+                                              spectral_lane_peak_release_ms)
+                                   : 1.0f;
+    const float lane_response = elapsed_ms > 0
+                                    ? 1.0f - std::exp(
+                                          -(float)elapsed_ms /
+                                          spectral_lane_smoothing_ms)
+                                    : 1.0f;
+    for (int lane = 0; lane < LV_SPECTRAL_COLOR_LANES; ++lane) {
+        flow->lane_peak[lane] = std::max(
+            lane_input[lane], flow->lane_peak[lane] * peak_release);
+        const float normalized = lane_input[lane] /
+                                 std::max(flow->lane_peak[lane], 0.035f);
+        if (reset_analysis) flow->lane_level[lane] = normalized;
+        else {
+            flow->lane_level[lane] +=
+                (normalized - flow->lane_level[lane]) * lane_response;
+        }
     }
 
-    int winning_region = 0;
-    float winning_score = 0.0f;
-    for (int region = 0; region < 3; ++region) {
-        const auto &definition = spectral_regions[region];
-        const float band_count =
-            (float)(definition.last_band - definition.first_band + 1);
-        const float mean = region_flux[region] / band_count;
-        const float score =
-            (0.65f * region_peak[region] + 0.35f * mean) *
-            definition.event_weight;
-        if (score > winning_score) {
-            winning_score = score;
-            winning_region = region;
+    float selected_hue = 0.0f;
+    if (rgb_mix_hue(flow->lane_level, &selected_hue)) {
+        if (flow->hue_initialized && elapsed_ms > 0) {
+            const float target = nearest_hue(selected_hue, flow->base_hue);
+            const float maximum_step = spectral_hue_slew_per_frame *
+                                       (float)elapsed_ms /
+                                       LV_SPECTRAL_FLOW_FRAME_MS;
+            flow->base_hue += std::clamp(
+                target - flow->base_hue, -maximum_step, maximum_step);
+        } else {
+            flow->base_hue = selected_hue;
         }
-    }
-
-    if (winning_score >= spectral_flux_floor) {
-        const float selected_hue =
-            spectral_band_hues[region_dominant_band[winning_region]];
-        flow->target_hue = flow->hue_initialized
-                               ? nearest_hue(selected_hue, flow->hue)
-                               : selected_hue;
-        if (!flow->hue_initialized) {
-            flow->hue = flow->target_hue;
-            flow->hue_initialized = true;
-        }
-    } else if (!flow->hue_initialized && energy > 0.0001f) {
-        float weighted_hue = 0.0f;
-        float weight = 0.0f;
-        for (int band = 0; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-            weighted_hue += clamp_level(band_level[band]) *
-                            spectral_band_hues[band];
-            weight += clamp_level(band_level[band]);
-        }
-        flow->target_hue = weight > 0.0f ? weighted_hue / weight : 0.0f;
-        flow->hue = flow->target_hue;
         flow->hue_initialized = true;
     }
 
-    if (flow->hue_initialized && elapsed_ms > 0) {
-        const float blend =
-            1.0f - std::exp(-(float)elapsed_ms / spectral_hue_time_constant_ms);
-        flow->hue += (flow->target_hue - flow->hue) * blend;
-    }
-
-    // One shared peak controls packet brightness without independently
-    // normalizing all 12 bands. Rise is immediate; the peak falls slowly
-    // enough to retain musical dynamics.
-    if (energy > 0.0001f &&
-        (reset_analysis || flow->gain_peak <= 0.0001f)) {
-        flow->gain_peak = energy;
-    } else if (energy > 0.0001f) {
-        const float release = elapsed_ms > 0
-                                  ? std::pow(0.992f,
-                                             (float)elapsed_ms /
-                                                 (1000.0f / 60.0f))
-                                  : 1.0f;
-        flow->gain_peak = std::max(energy, flow->gain_peak * release);
-    }
-
-    const float gain = std::max(flow->gain_peak, 0.0001f);
-    const float normalized_energy = clamp_level(energy / gain);
-    // Preserve dynamics without letting one loud transient make subsequent
-    // packets disappear. The gate still controls true silence; an audible
-    // packet gets at least 55% source brightness before the global safety cap.
-    const float target_value =
-        energy > 0.0001f
-            ? std::min(255.0f,
-                       (0.55f + 0.45f * std::sqrt(normalized_energy)) *
-                               255.0f +
-                           flow->bass_impulse * 24.0f)
-            : 0.0f;
+    // FLOW represents the music through color and motion. Keeping its lit
+    // ribbon at one brightness prevents ordinary level variation from
+    // appearing as unrelated flashes inside a traveling color segment.
+    const float target_value = energy > 0.0001f ? 255.0f : 0.0f;
     if (reset_analysis || elapsed_ms == 0) {
-        flow->source_value = target_value;
+        flow->base_value = target_value;
     } else {
-        const float time_constant = target_value > flow->source_value
+        const float time_constant = target_value > flow->base_value
                                         ? spectral_value_attack_ms
                                         : spectral_value_release_ms;
-        const float blend =
+        const float response =
             1.0f - std::exp(-(float)elapsed_ms / time_constant);
-        flow->source_value += (target_value - flow->source_value) * blend;
+        flow->base_value += (target_value - flow->base_value) * response;
+    }
+    flow->source_value = flow->base_value;
+
+    if (kick != nullptr && kick->triggered) {
+        const float reference = flow->hue_initialized
+                                    ? flow->base_hue
+                                    : flow->source_hue;
+        flow->accent_hue = nearest_hue(spectral_kick_hue, reference);
+        flow->accent_value = std::max(
+            flow->base_value, 220.0f + 35.0f * clamp_level(kick->strength));
+        flow->accent_until_ms = now_ms + LV_SPECTRAL_KICK_HOLD_MS;
+        flow->accent_release_until_ms =
+            flow->accent_until_ms + spectral_event_release_ms;
+    }
+
+    if (now_ms < flow->accent_until_ms) {
+        flow->source_hue = flow->accent_hue;
+        flow->source_value = flow->accent_value;
+    } else if (now_ms < flow->accent_release_until_ms) {
+        const float release =
+            (float)(now_ms - flow->accent_until_ms) /
+            (float)spectral_event_release_ms;
+        const float destination = nearest_hue(flow->base_hue,
+                                              flow->accent_hue);
+        flow->source_hue = flow->accent_hue +
+                           (destination - flow->accent_hue) * release;
+        flow->source_value = flow->accent_value +
+                             (flow->base_value - flow->accent_value) * release;
+    } else {
+        flow->source_hue = flow->base_hue;
+        flow->source_value = flow->base_value;
     }
 }
 
@@ -236,14 +207,14 @@ void append_ribbon_sample(lv_spectral_flow_t *flow, uint32_t now_ms) {
     if (flow->history_count > 0 &&
         flow->history[flow->history_head].time_ms == now_ms) {
         flow->history[flow->history_head] = {
-            flow->hue, flow->source_value, now_ms};
+            flow->source_hue, flow->source_value, now_ms};
         return;
     }
 
     flow->history_head =
         (uint16_t)((flow->history_head + 1) % LV_SPECTRAL_FLOW_HISTORY);
     flow->history[flow->history_head] = {
-        flow->hue, flow->source_value, now_ms};
+        flow->source_hue, flow->source_value, now_ms};
     if (flow->history_count < LV_SPECTRAL_FLOW_HISTORY) {
         ++flow->history_count;
     }
@@ -314,6 +285,54 @@ lv_rgb_t lv_hsv_to_rgb(uint8_t hue, uint8_t saturation, uint8_t value) {
     }
 }
 
+lv_kick_event_t lv_kick_detector_update(lv_kick_detector_t *detector,
+                                        float bass_level,
+                                        uint32_t now_ms) {
+    lv_kick_event_t kick{};
+    bass_level = clamp_level(bass_level);
+    const bool stale = detector->initialized &&
+                       now_ms - detector->last_update_ms >=
+                           spectral_flow_stale_ms;
+    if (!detector->initialized || stale) {
+        detector->fast_envelope = bass_level;
+        detector->slow_envelope = bass_level;
+        detector->previous_level = bass_level;
+        detector->last_update_ms = now_ms;
+        detector->initialized = true;
+        detector->kick_seen = false;
+        return kick;
+    }
+
+    const float rise = bass_level - detector->previous_level;
+    const float fast_rate = bass_level > detector->fast_envelope
+                                ? 0.70f
+                                : 0.25f;
+    detector->fast_envelope +=
+        (bass_level - detector->fast_envelope) * fast_rate;
+    detector->slow_envelope +=
+        (bass_level - detector->slow_envelope) * 0.06f;
+
+    const float minimum_rise =
+        std::max(0.035f, detector->slow_envelope * 0.16f);
+    const bool transient = rise > minimum_rise &&
+                           bass_level > 0.06f &&
+                           detector->fast_envelope >
+                               detector->slow_envelope * 1.12f + 0.005f;
+    const bool refractory = detector->kick_seen &&
+                            now_ms - detector->last_kick_ms <
+                                spectral_kick_refractory_ms;
+    if (transient && !refractory) {
+        kick.triggered = true;
+        kick.strength = std::clamp(rise / 0.65f, 0.0f, 1.0f);
+        detector->last_kick_ms = now_ms;
+        detector->kick_seen = true;
+    }
+
+    detector->previous_level = bass_level;
+    detector->last_update_ms = now_ms;
+    return kick;
+}
+
 float lv_spectral_flow_coordinate(int half, float outward_distance, float row) {
     const float bounded_row = std::clamp(row, 0.0f, 4.0f);
     const float phased_row = half == 1 ? 4.0f - bounded_row : bounded_row;
@@ -323,19 +342,21 @@ float lv_spectral_flow_coordinate(int half, float outward_distance, float row) {
 void lv_spectral_flow_update(
     lv_spectral_flow_t *flow,
     const float band_level[LV_SPECTRAL_FLOW_BANDS], float bass_transient,
-    uint32_t now_ms) {
+    uint32_t now_ms, const lv_kick_event_t *kick) {
     const bool reset_history =
         flow->initialized &&
         now_ms - flow->last_frame_ms >= spectral_flow_stale_ms;
     const uint32_t elapsed_ms =
         flow->initialized && !reset_history ? now_ms - flow->last_frame_ms : 0;
-    spectral_source_hsv(flow, band_level, bass_transient,
-                        !flow->initialized || reset_history, elapsed_ms);
+    spectral_source_hsv(flow, band_level, bass_transient, kick,
+                        !flow->initialized || reset_history, elapsed_ms,
+                        now_ms);
 
     if (!flow->initialized || reset_history) {
         flow->history_head = 0;
         flow->history_count = 1;
-        flow->history[0] = {flow->hue, flow->source_value, now_ms};
+        flow->history[0] = {
+            flow->source_hue, flow->source_value, now_ms};
         flow->initialized = true;
         flow->last_frame_ms = now_ms;
         return;
@@ -367,16 +388,9 @@ lv_rgb_t lv_spectral_flow_color(const lv_spectral_flow_t *flow,
         value += sample.value * spectral_blur_weights[tap];
         total_weight += spectral_blur_weights[tap];
     }
-    hue /= total_weight;
-    value /= total_weight;
-
-    const float carrier_period_ms = travel_ms * spectral_carrier_wavelength;
-    const float carrier_cycles = coordinate / spectral_carrier_wavelength -
-                                 (float)now_ms / carrier_period_ms;
-    const float carrier = 0.91f + 0.09f * fast_carrier_cos(carrier_cycles);
     const float distance_decay = fast_distance_decay(coordinate);
-    return lv_hsv_to_rgb(color_channel(wrap_hue(hue)), 255,
-                         color_channel(value * carrier * distance_decay));
+    return lv_hsv_to_rgb(color_channel(wrap_hue(hue / total_weight)), 255,
+                         color_channel(value / total_weight * distance_decay));
 }
 
 lv_rgb_t lv_aurora_color(float x, float y, uint32_t now_ms) {

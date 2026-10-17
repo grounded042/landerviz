@@ -54,18 +54,26 @@ not model its software floating-point cost or USB transport.
 
 ## FLOW implementation
 
-`FLOW` groups positive changes across 12 frequency bands (spectral flux) into
-bass, body, and presence regions. Each score combines its strongest band and
-its mean change, then applies region weights of `1.25`, `1.10`, and `0.72`.
-The strongest region wins, and its strongest individual band selects a fully
-saturated source hue. This avoids averaging simultaneous colors back toward a
-single middle hue. The existing bass transient detector affects source
-brightness only; a kick cannot steal the hue from a guitar or presence event.
-Body hues travel from yellow through orange and red to violet and deep blue.
+`FLOW` consumes 12 overlapping triangular frequency bands spaced on the mel
+scale from 60 Hz to 7.5 kHz. The mel scale approximates how humans perceive
+pitch, while overlapping bands retain energy near a band boundary instead of
+assigning it abruptly to one rectangular bucket. These bands are separate
+from the legacy logarithmic peak bands used by the LCD and other modes.
 
-A shared peak follower controls brightness. Every rendered source color is
-timestamped in a 96-entry history, producing a continuous ribbon rather than
-discrete color packets.
+Every analysis frame calculates the spectrum's weighted center and biases it
+toward the strongest band. That position selects a fully saturated source hue
+from a palette that moves from bass red through body magenta/blue and presence
+cyan/green/amber. Per-band peak followers keep quieter regions relevant, while
+a shared peak follower preserves whole-packet loudness changes. A kick
+reinforces the lowest mel band. There is no spectral-flux gate or delayed hue
+target: sustained notes and every new spectrum continue defining the source.
+
+Every hue/value source packet is timestamped in a 96-entry history. The
+history is a literal moving record of the audio: a transient produces a
+distinct packet that travels outward. Audible packets retain a 20% brightness
+floor after adaptive gain rather than being compressed into a nearly constant
+brightness. Hue is unwrapped before storage and interpolated in hue space, so
+neighboring packets remain saturated instead of becoming pastel RGB blends.
 
 Each key receives a fractional ribbon coordinate derived from its outward
 distance and row. One column represents 110 milliseconds of history, and each
@@ -74,15 +82,14 @@ use opposite row phase.
 
 The renderer samples five nearby ribbon positions at offsets
 `-0.70, -0.35, 0, +0.35, +0.70`, weighted `1, 4, 6, 4, 1`. This spatial filter
-spreads a hard color boundary across multiple keys. A subtle 2.5-column sine
-wave varies brightness from 82% to 100% as it travels outward, making motion
-legible when adjacent hues are close. Distance applies a small 3% per-column
-fade.
+spreads a hard color boundary across multiple keys. Distance applies a small
+3% per-column fade. FLOW adds no periodic carrier or other autonomous motion;
+changes in the ribbon come from its recorded audio packets.
 
 Tests should lock down behavior rather than tuning accidents: fractional row
 coordinates, broad transitions at sharp source boundaries, frame-independent
-propagation, visible same-hue motion, saturation, noise gating, and safe output
-bounds.
+propagation, mel-band placement and overlap, sustained content, saturation,
+loudness dynamics, noise gating, and the absence of unrelated motion.
 
 ## References
 
@@ -94,6 +101,9 @@ The model follows techniques used by established keyboard and LED visualizers:
   renders dense virtual gradients or images before mapping them to device LEDs.
 - [KeyboardVisualizer](https://github.com/CalcProgrammer1/KeyboardVisualizer)
   uses spatial averaging, temporal filtering, and decay for sparse devices.
+- [Audio Reactive LED Strip](https://github.com/scottlawsonbc/audio-reactive-led-strip)
+  injects each frame's low-, mid-, and high-frequency energy as a new RGB
+  packet in an outward-scrolling history.
 - [QMK Riverflow](https://github.com/qmk/qmk_firmware/blob/master/quantum/rgb_matrix/animations/riverflow_anim.h)
   adds a traveling brightness wave to make motion readable.
 

@@ -6,11 +6,28 @@
 
 enum {
     LV_SPECTRAL_FLOW_BANDS = 12,
+    LV_SPECTRAL_COLOR_LANES = 3,
     LV_SPECTRAL_FLOW_COLUMNS = 6,
     LV_SPECTRAL_FLOW_FRAME_MS = 33,
     LV_SPECTRAL_FLOW_HISTORY = 96,
     LV_SPECTRAL_FLOW_TRAVEL_MS = 110,
+    LV_SPECTRAL_KICK_HOLD_MS = 120,
 };
+
+typedef struct {
+    bool triggered;
+    float strength;
+} lv_kick_event_t;
+
+typedef struct {
+    float fast_envelope;
+    float slow_envelope;
+    float previous_level;
+    uint32_t last_update_ms;
+    uint32_t last_kick_ms;
+    bool initialized;
+    bool kick_seen;
+} lv_kick_detector_t;
 
 typedef struct {
     float hue;
@@ -20,14 +37,17 @@ typedef struct {
 
 typedef struct {
     lv_spectral_flow_sample_t history[LV_SPECTRAL_FLOW_HISTORY];
-    float previous_band_level[LV_SPECTRAL_FLOW_BANDS];
-    float gain_peak;
-    float hue;
-    float target_hue;
+    float lane_peak[LV_SPECTRAL_COLOR_LANES];
+    float lane_level[LV_SPECTRAL_COLOR_LANES];
+    float base_hue;
+    float base_value;
+    float source_hue;
     float source_value;
-    float previous_bass_transient;
-    float bass_impulse;
+    float accent_hue;
+    float accent_value;
     uint32_t last_frame_ms;
+    uint32_t accent_until_ms;
+    uint32_t accent_release_until_ms;
     uint16_t history_head;
     uint16_t history_count;
     uint16_t travel_ms;
@@ -37,12 +57,18 @@ typedef struct {
 
 lv_rgb_t lv_hsv_to_rgb(uint8_t hue, uint8_t saturation, uint8_t value);
 
-// Let the strongest bass, body, or presence event select a saturated hue,
-// then append that continuously evolving color to the ribbon history.
+// Detect a kick from a sharp rise in the shared low-frequency envelope. The
+// fast and slow envelopes distinguish a transient from a sustained bass note.
+lv_kick_event_t lv_kick_detector_update(lv_kick_detector_t *detector,
+                                        float bass_level,
+                                        uint32_t now_ms);
+
+// Map the complete mel spectrum to one saturated hue/value packet, then append
+// that packet to the outward-moving ribbon history.
 void lv_spectral_flow_update(
     lv_spectral_flow_t *flow,
     const float band_level[LV_SPECTRAL_FLOW_BANDS], float bass_transient,
-    uint32_t now_ms);
+    uint32_t now_ms, const lv_kick_event_t *kick = nullptr);
 
 // Convert a key's outward distance and vertical row into a continuous field
 // coordinate. Opposite row phase on each half prevents whole columns from

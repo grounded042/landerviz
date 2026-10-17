@@ -2,6 +2,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 
@@ -159,12 +160,87 @@ static std::array<uint16_t, LV_FFT_N> audio_tone(int bin, float amplitude) {
     return samples;
 }
 
+static float synthetic_kick_sample(float time_seconds) {
+    constexpr float interval = 0.5f;
+    constexpr float first_kick = 0.5f;
+    constexpr float pi = 3.14159265f;
+    if (time_seconds < first_kick) return 0.0f;
+    const float phase = std::fmod(time_seconds - first_kick, interval);
+    if (phase >= 0.18f) return 0.0f;
+    return 0.75f * std::exp(-phase * 18.0f) *
+           std::sin(2.0f * pi * 74.0f * phase);
+}
+
+static void test_kick_detector_tracks_an_isolated_kick_train_end_to_end() {
+    constexpr int sample_rate = 15625;
+    constexpr int seconds = 8;
+    lv_channel_analysis_t analysis{};
+    lv_kick_detector_t detector{};
+    std::array<uint16_t, LV_FFT_N> samples{};
+    int detected = 0;
+    int window = 0;
+
+    for (int first_sample = 0; first_sample + LV_FFT_N <= seconds * sample_rate;
+         first_sample += LV_FFT_N, ++window) {
+        for (int sample = 0; sample < LV_FFT_N; ++sample) {
+            const float time = (float)(first_sample + sample) / sample_rate;
+            samples[sample] = (uint16_t)(
+                LV_ADC_MID + LV_ADC_MID * synthetic_kick_sample(time));
+        }
+        if (window % LV_ANALYSIS_DECIMATION != 0) continue;
+        lv_analyze_channel(&analysis, samples.data(), 1.0f);
+        const uint32_t now_ms = (uint32_t)(
+            (uint64_t)(first_sample + LV_FFT_N) * 1000 / sample_rate);
+        const auto event = lv_kick_detector_update(
+            &detector, analysis.bass_env, now_ms);
+        if (event.triggered) {
+            ++detected;
+        }
+    }
+
+    // Fifteen kicks occur after the initial half-second of silence.
+    if (detected < 14 || detected > 15) {
+        std::fprintf(stderr, "isolated kick train detected %d of 15\n",
+                     detected);
+    }
+    assert(detected >= 14 && detected <= 15);
+}
+
 static int dominant_band(const lv_channel_analysis_t &analysis) {
     int dominant = 0;
     for (int band = 1; band < LV_BAND_COUNT; ++band) {
         if (analysis.band_level[band] > analysis.band_level[dominant]) dominant = band;
     }
     return dominant;
+}
+
+static int dominant_mel_band(const lv_channel_analysis_t &analysis) {
+    int dominant = 0;
+    for (int band = 1; band < LV_MEL_BAND_COUNT; ++band) {
+        if (analysis.mel_level[band] > analysis.mel_level[dominant]) {
+            dominant = band;
+        }
+    }
+    return dominant;
+}
+
+static void test_mel_filterbank_tracks_perceptual_frequency_regions() {
+    lv_channel_analysis_t low{};
+    lv_channel_analysis_t body{};
+    lv_channel_analysis_t presence{};
+
+    const auto low_tone = audio_tone(4, 0.5f);
+    const auto body_tone = audio_tone(26, 0.5f);
+    const auto presence_tone = audio_tone(82, 0.5f);
+    lv_analyze_channel(&low, low_tone.data(), 1.0f);
+    lv_analyze_channel(&body, body_tone.data(), 1.0f);
+    lv_analyze_channel(&presence, presence_tone.data(), 1.0f);
+
+    assert(dominant_mel_band(low) == 0);
+    assert(dominant_mel_band(body) == 5);
+    assert(dominant_mel_band(presence) == 10);
+    assert(body.mel_level[4] > 0.0f);
+    assert(body.mel_level[6] > 0.0f);
 }
 
 static void test_stereo_analysis_keeps_channels_independent() {
@@ -196,6 +272,7 @@ static void test_silent_channel_stays_silent() {
     assert(analysis.rms_level == 0.0f);
     assert(analysis.bass_env == 0.0f);
     for (float level : analysis.band_level) assert(level == 0.0f);
+    for (float level : analysis.mel_level) assert(level == 0.0f);
 }
 
 static void test_biased_silence_removes_measured_dc_offset() {
@@ -208,6 +285,7 @@ static void test_biased_silence_removes_measured_dc_offset() {
     assert(analysis.rms_level == 0.0f);
     assert(analysis.bass_env == 0.0f);
     for (float level : analysis.band_level) assert(level == 0.0f);
+    for (float level : analysis.mel_level) assert(level == 0.0f);
 }
 
 static void test_input_gain_scales_audio_before_analysis() {
@@ -315,7 +393,7 @@ static int rgb_brightness(lv_rgb_t color) {
     return std::max((int)color.r, std::max((int)color.g, (int)color.b));
 }
 
-static void test_spectral_flow_flux_maps_all_frequency_regions_to_vivid_hues() {
+static void test_spectral_flow_maps_frequency_regions_to_vivid_hues() {
     float low_bands[LV_SPECTRAL_FLOW_BANDS] = {};
     low_bands[0] = 1.0f;
     lv_spectral_flow_t low_flow{};
@@ -324,21 +402,147 @@ static void test_spectral_flow_flux_maps_all_frequency_regions_to_vivid_hues() {
     assert(low.r >= 240 && low.g < 40 && low.b < 40);
 
     float mid_bands[LV_SPECTRAL_FLOW_BANDS] = {};
-    mid_bands[7] = 1.0f;
+    mid_bands[5] = 1.0f;
     lv_spectral_flow_t mid_flow{};
     lv_spectral_flow_update(&mid_flow, mid_bands, 0.0f, 0);
     const auto mid = lv_spectral_flow_color(&mid_flow, 0.0f, 0);
-    assert(mid.r < 80 && mid.g < 80 && mid.b >= 240);
+    assert(mid.g >= 240 && mid.g > mid.r && mid.g > mid.b);
 
     float high_bands[LV_SPECTRAL_FLOW_BANDS] = {};
     high_bands[11] = 1.0f;
     lv_spectral_flow_t high_flow{};
     lv_spectral_flow_update(&high_flow, high_bands, 0.0f, 0);
     const auto high = lv_spectral_flow_color(&high_flow, 0.0f, 0);
-    assert(high.r >= 180 && high.b >= 240 && high.g < 40);
+    assert(high.b >= 240 && high.b > high.r && high.b > high.g);
+
+    assert(std::min({low.r, low.g, low.b}) == 0);
+    assert(std::min({mid.r, mid.g, mid.b}) == 0);
+    assert(std::min({high.r, high.g, high.b}) == 0);
 }
 
-static void test_spectral_flow_keeps_quiet_ribbon_visible_after_a_peak() {
+static void test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink() {
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[5] = 1.0f;
+    lv_spectral_flow_t flow{};
+    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
+    const float first_hue = flow.base_hue;
+
+    bands[5] = 0.0f;
+    bands[6] = 1.0f;
+    lv_spectral_flow_update(&flow, bands, 0.0f,
+                            LV_SPECTRAL_FLOW_FRAME_MS);
+    assert(std::fabs(flow.base_hue - first_hue) < 1.0f);
+}
+
+static void test_spectral_flow_limits_hue_motion_per_frame() {
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[0] = 1.0f;
+    lv_spectral_flow_t flow{};
+    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
+
+    bands[0] = 0.0f;
+    bands[11] = 1.0f;
+    float previous_hue = flow.base_hue;
+    for (uint32_t now_ms = LV_SPECTRAL_FLOW_FRAME_MS;
+         now_ms <= 40 * LV_SPECTRAL_FLOW_FRAME_MS;
+         now_ms += LV_SPECTRAL_FLOW_FRAME_MS) {
+        lv_spectral_flow_update(&flow, bands, 0.0f, now_ms);
+        assert(std::fabs(flow.base_hue - previous_hue) <= 8.01f);
+        previous_hue = flow.base_hue;
+    }
+    const auto high = lv_spectral_flow_color(
+        &flow, 0.0f, 40 * LV_SPECTRAL_FLOW_FRAME_MS);
+    assert(high.b > high.r && high.b > high.g);
+}
+
+static void test_kick_detector_fires_on_a_sharp_bass_rise_once() {
+    lv_kick_detector_t detector{};
+    assert(!lv_kick_detector_update(&detector, 0.05f, 0).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.05f, 33).triggered);
+
+    const auto kick = lv_kick_detector_update(&detector, 0.70f, 66);
+    assert(kick.triggered);
+    assert(kick.strength > 0.5f);
+    assert(!lv_kick_detector_update(&detector, 0.65f, 99).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.60f, 132).triggered);
+}
+
+static void test_kick_detector_ignores_gradual_or_sustained_bass() {
+    lv_kick_detector_t detector{};
+    assert(!lv_kick_detector_update(&detector, 0.05f, 0).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.08f, 33).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.11f, 66).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.14f, 99).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.17f, 132).triggered);
+    assert(!lv_kick_detector_update(&detector, 0.17f, 165).triggered);
+}
+
+static void test_spectral_flow_holds_attack_accent_for_a_visible_segment() {
+    lv_spectral_flow_t flow{};
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[6] = 0.7f;
+    const lv_kick_event_t event{true, 1.0f};
+
+    lv_spectral_flow_update(&flow, bands, 0.0f, 0, &event);
+    const auto initial = lv_spectral_flow_color(&flow, 0.0f, 0);
+    for (uint32_t now_ms = 33; now_ms < LV_SPECTRAL_KICK_HOLD_MS;
+         now_ms += 33) {
+        lv_spectral_flow_update(&flow, bands, 0.0f, now_ms, nullptr);
+        const auto held = lv_spectral_flow_color(&flow, 0.0f, now_ms);
+        assert(std::abs((int)held.r - (int)initial.r) <= 1);
+        assert(std::abs((int)held.g - (int)initial.g) <= 1);
+        assert(std::abs((int)held.b - (int)initial.b) <= 1);
+    }
+    assert(initial.r > initial.b);
+}
+
+static void test_spectral_flow_latches_kick_brightness_for_the_whole_packet() {
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[6] = 0.7f;
+    const lv_kick_event_t kick{true, 1.0f};
+    lv_spectral_flow_t kick_flow{};
+
+    lv_spectral_flow_update(&kick_flow, bands, 0.0f, 0, &kick);
+    const auto initial = lv_spectral_flow_color(&kick_flow, 0.0f, 0);
+    bands[6] = 0.05f;
+    bands[10] = 1.0f;
+    for (uint32_t now_ms = 33; now_ms < LV_SPECTRAL_KICK_HOLD_MS;
+         now_ms += 33) {
+        lv_spectral_flow_update(&kick_flow, bands, 0.0f, now_ms, nullptr);
+        const auto held = lv_spectral_flow_color(&kick_flow, 0.0f, now_ms);
+        assert(std::memcmp(&held, &initial, sizeof(held)) == 0);
+    }
+}
+
+static void test_visualizer_shares_attack_timing_across_stereo_halves() {
+    lv_visualizer_t visualizer{};
+    lv_visualizer_set_flow_kick_packets(&visualizer, true);
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_rgb_t frame[LV_KEY_COUNT]{};
+    for (auto &channel : audio) {
+        channel.rms_level = 0.1f;
+        channel.mel_level[5] = 0.08f;
+        channel.bass_env = 0.05f;
+    }
+    lv_visualizer_render(&visualizer, lv_viz_mode_t::FLOW, audio, true,
+                         0, frame);
+
+    audio[0].mel_level[5] = 0.8f;
+    audio[0].bass_env = 0.8f;
+    lv_visualizer_render(&visualizer, lv_viz_mode_t::FLOW, audio, true,
+                         33, frame);
+
+    assert(visualizer.flow[0].accent_until_ms ==
+           33 + LV_SPECTRAL_KICK_HOLD_MS);
+    assert(visualizer.flow[1].accent_until_ms ==
+           visualizer.flow[0].accent_until_ms);
+    assert(std::fabs(visualizer.flow[0].accent_hue -
+                     visualizer.flow[1].accent_hue) < 0.001f);
+    assert(std::fabs(visualizer.flow[0].accent_value -
+                     visualizer.flow[1].accent_value) < 0.001f);
+}
+
+static void test_spectral_flow_keeps_brightness_stable_while_audio_is_present() {
     float bands[LV_SPECTRAL_FLOW_BANDS] = {};
     bands[0] = 1.0f;
     lv_spectral_flow_t flow{};
@@ -348,8 +552,21 @@ static void test_spectral_flow_keeps_quiet_ribbon_visible_after_a_peak() {
                             LV_SPECTRAL_FLOW_FRAME_MS);
     const auto quiet = lv_spectral_flow_color(
         &flow, 0.0f, LV_SPECTRAL_FLOW_FRAME_MS);
-    assert(quiet.r >= 130);
+    assert(quiet.r == 255);
     assert(quiet.g == 0 && quiet.b == 0);
+}
+
+static void test_spectral_flow_balanced_spectrum_remains_saturated() {
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[0] = 1.0f;
+    bands[5] = 1.0f;
+    bands[11] = 1.0f;
+    lv_spectral_flow_t flow{};
+    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
+
+    const auto combined = lv_spectral_flow_color(&flow, 0.0f, 0);
+    assert(rgb_brightness(combined) >= 240);
+    assert(std::min({combined.r, combined.g, combined.b}) == 0);
 }
 
 static void test_spectral_flow_ribbon_propagates_every_intermediate_frame() {
@@ -358,13 +575,15 @@ static void test_spectral_flow_ribbon_propagates_every_intermediate_frame() {
     lv_spectral_flow_t flow{};
     lv_spectral_flow_update(&flow, bands, 0.0f, 0);
 
-    bands[0] = 0.0f;
     bands[11] = 1.0f;
     lv_rgb_t inner_at_source_time{};
     lv_rgb_t previous_delayed{};
     int changed_frames = 0;
     for (uint32_t now_ms = 10;
          now_ms <= 2 * LV_SPECTRAL_FLOW_TRAVEL_MS; now_ms += 10) {
+        // The analyzer releases an old band over several frames rather than
+        // producing an impossible full-scale discontinuity.
+        bands[0] *= 0.84f;
         lv_spectral_flow_update(&flow, bands, 0.0f, now_ms);
         if (now_ms == LV_SPECTRAL_FLOW_TRAVEL_MS) {
             // Stay far enough from the center edge that both positions sample
@@ -391,7 +610,9 @@ static void test_spectral_flow_ribbon_propagates_every_intermediate_frame() {
                     (int)(inner_at_source_time.g * 0.97f + 0.5f)) <= 2);
     assert(std::abs((int)delayed.b -
                     (int)(inner_at_source_time.b * 0.97f + 0.5f)) <= 2);
-    assert(changed_frames >= 9);
+    // Color slew limiting deliberately trades a few immediate changes for
+    // stability, but the traveling field must still advance on most frames.
+    assert(changed_frames >= 6);
 
     for (int distance = 0; distance < LV_SPECTRAL_FLOW_COLUMNS; ++distance) {
         assert(rgb_brightness(lv_spectral_flow_color(
@@ -399,77 +620,20 @@ static void test_spectral_flow_ribbon_propagates_every_intermediate_frame() {
     }
 }
 
-static void test_spectral_flow_kick_does_not_override_high_frequency_color() {
-    float bands[LV_SPECTRAL_FLOW_BANDS];
-    std::fill(std::begin(bands), std::end(bands), 0.2f);
+static void test_spectral_flow_sustained_music_keeps_defining_the_source() {
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[6] = 0.7f;
     lv_spectral_flow_t flow{};
     lv_spectral_flow_update(&flow, bands, 0.0f, 0);
 
-    for (int band = 8; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-        bands[band] = 0.4f;
+    for (uint32_t now_ms = LV_SPECTRAL_FLOW_FRAME_MS;
+         now_ms <= 330; now_ms += LV_SPECTRAL_FLOW_FRAME_MS) {
+        lv_spectral_flow_update(&flow, bands, 0.0f, now_ms);
     }
-    lv_spectral_flow_update(&flow, bands, 1.0f,
-                            LV_SPECTRAL_FLOW_FRAME_MS);
 
-    const float wrapped_hue = std::fmod(flow.target_hue + 256.0f, 256.0f);
-    assert(wrapped_hue >= 120.0f && wrapped_hue <= 210.0f);
-}
-
-static void test_spectral_flow_body_event_is_not_diluted_by_more_high_bands() {
-    float bands[LV_SPECTRAL_FLOW_BANDS];
-    std::fill(std::begin(bands), std::end(bands), 0.2f);
-    lv_spectral_flow_t flow{};
-    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
-
-    bands[3] = 0.4f;
-    for (int band = 8; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-        bands[band] = 0.3f;
-    }
-    lv_spectral_flow_update(&flow, bands, 0.0f,
-                            LV_SPECTRAL_FLOW_FRAME_MS);
-
-    const float wrapped_hue = std::fmod(flow.target_hue + 256.0f, 256.0f);
-    assert(wrapped_hue >= 30.0f && wrapped_hue <= 55.0f);
-}
-
-static void test_spectral_flow_kick_priority_expires_between_hits() {
-    float bands[LV_SPECTRAL_FLOW_BANDS];
-    std::fill(std::begin(bands), std::end(bands), 0.2f);
-    lv_spectral_flow_t flow{};
-    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
-
-    for (int band = 8; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-        bands[band] = 0.4f;
-    }
-    lv_spectral_flow_update(&flow, bands, 1.0f, 33);
-
-    for (uint32_t now_ms = 66; now_ms < 330; now_ms += 33) {
-        const float falling_envelope =
-            1.0f - 0.5f * ((float)now_ms - 33.0f) / 297.0f;
-        lv_spectral_flow_update(&flow, bands, falling_envelope, now_ms);
-    }
-    for (int band = 8; band < LV_SPECTRAL_FLOW_BANDS; ++band) {
-        bands[band] = 0.8f;
-    }
-    lv_spectral_flow_update(&flow, bands, 0.5f, 330);
-
-    const float wrapped_hue = std::fmod(flow.target_hue + 256.0f, 256.0f);
-    assert(wrapped_hue >= 120.0f && wrapped_hue <= 210.0f);
-}
-
-static void test_spectral_flow_dominant_body_band_chooses_hue() {
-    float bands[LV_SPECTRAL_FLOW_BANDS];
-    std::fill(std::begin(bands), std::end(bands), 0.2f);
-    lv_spectral_flow_t flow{};
-    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
-
-    bands[3] = 0.35f;
-    bands[7] = 0.6f;
-    lv_spectral_flow_update(&flow, bands, 0.0f,
-                            LV_SPECTRAL_FLOW_FRAME_MS);
-
-    const float wrapped_hue = std::fmod(flow.target_hue + 256.0f, 256.0f);
-    assert(wrapped_hue >= 165.0f && wrapped_hue <= 190.0f);
+    const auto source = lv_spectral_flow_color(&flow, 0.0f, 330);
+    assert(source.g >= 240);
+    assert(source.r < 40 && source.b < 40);
 }
 
 static void test_visualizer_flow_travel_can_be_tuned_without_rebuilding() {
@@ -512,8 +676,8 @@ static void test_spectral_flow_blurs_a_sharp_boundary_across_keys() {
     flow.history[1] = {
         0.0f, 255.0f, 1000 - LV_SPECTRAL_FLOW_TRAVEL_MS - 1};
     flow.history[2] = {
-        170.0f, 255.0f, 1000 - LV_SPECTRAL_FLOW_TRAVEL_MS};
-    flow.history[3] = {170.0f, 255.0f, 1000};
+        -86.0f, 255.0f, 1000 - LV_SPECTRAL_FLOW_TRAVEL_MS};
+    flow.history[3] = {-86.0f, 255.0f, 1000};
 
     const auto blue = lv_spectral_flow_color(&flow, 0.0f, 1000);
     const auto blue_edge = lv_spectral_flow_color(&flow, 0.6f, 1000);
@@ -522,15 +686,15 @@ static void test_spectral_flow_blurs_a_sharp_boundary_across_keys() {
 
     assert(blue.b > blue.r && blue.b > blue.g);
     assert(red.r > red.g && red.r > red.b);
-    assert(blue_edge.g >= 30);
-    assert(red_edge.g >= 30);
+    assert(blue_edge.r >= 15 && blue_edge.b >= 15);
+    assert(red_edge.r >= 15 && red_edge.b >= 15);
 }
 
-static void test_spectral_flow_brightness_carrier_shows_same_hue_motion() {
+static void test_spectral_flow_has_no_motion_unrelated_to_audio_history() {
+    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
+    bands[0] = 1.0f;
     lv_spectral_flow_t flow{};
-    flow.initialized = true;
-    flow.history_count = 1;
-    flow.history[0] = {0.0f, 255.0f, 0};
+    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
 
     const uint32_t dim_time = 3 * LV_SPECTRAL_FLOW_TRAVEL_MS / 4;
     const uint32_t bright_time = 2 * LV_SPECTRAL_FLOW_TRAVEL_MS;
@@ -538,7 +702,7 @@ static void test_spectral_flow_brightness_carrier_shows_same_hue_motion() {
         lv_spectral_flow_color(&flow, 2.0f, dim_time));
     const int bright = rgb_brightness(
         lv_spectral_flow_color(&flow, 2.0f, bright_time));
-    assert(bright - dim >= 30);
+    assert(std::abs(bright - dim) <= 1);
 }
 
 static void test_shared_visualizer_uses_idle_when_audio_is_quiet() {
@@ -555,23 +719,6 @@ static void test_shared_visualizer_uses_idle_when_audio_is_quiet() {
 
     assert(std::memcmp(quiet_flow, idle, sizeof(idle)) == 0);
     for (const auto color : idle) assert(rgb_brightness(color) > 0);
-}
-
-static void test_spectral_flow_keeps_saturated_color_during_hue_changes() {
-    float bands[LV_SPECTRAL_FLOW_BANDS] = {};
-    bands[0] = 1.0f;
-    lv_spectral_flow_t flow{};
-    lv_spectral_flow_update(&flow, bands, 0.0f, 0);
-
-    bands[0] = 0.0f;
-    bands[11] = 1.0f;
-    for (int frame = 1; frame <= 12; ++frame) {
-        const uint32_t now_ms = frame * LV_SPECTRAL_FLOW_FRAME_MS;
-        lv_spectral_flow_update(&flow, bands, 0.0f, now_ms);
-        const auto color =
-            lv_spectral_flow_color(&flow, 0.0f, now_ms);
-        assert(std::min({color.r, color.g, color.b}) == 0);
-    }
 }
 
 static void test_vu_rows_fill_smoothly_from_green_to_red() {
@@ -734,7 +881,9 @@ int main() {
     test_newer_frame_discards_partial_frame();
     test_release_and_mapping();
     test_pending_audio_buffer_is_not_overwritten();
+    test_kick_detector_tracks_an_isolated_kick_train_end_to_end();
     test_stereo_analysis_keeps_channels_independent();
+    test_mel_filterbank_tracks_perceptual_frequency_regions();
     test_silent_channel_stays_silent();
     test_biased_silence_removes_measured_dc_offset();
     test_input_gain_scales_audio_before_analysis();
@@ -744,18 +893,22 @@ int main() {
     test_lcd_spectrum_bins_preserve_low_and_high_frequency_edges();
     test_audio_activity_ignores_isolated_noise_spikes();
     test_audio_activity_requires_sustained_sound_to_leave_idle();
-    test_spectral_flow_flux_maps_all_frequency_regions_to_vivid_hues();
-    test_spectral_flow_keeps_quiet_ribbon_visible_after_a_peak();
+    test_spectral_flow_maps_frequency_regions_to_vivid_hues();
+    test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();
+    test_spectral_flow_limits_hue_motion_per_frame();
+    test_kick_detector_fires_on_a_sharp_bass_rise_once();
+    test_kick_detector_ignores_gradual_or_sustained_bass();
+    test_spectral_flow_holds_attack_accent_for_a_visible_segment();
+    test_spectral_flow_latches_kick_brightness_for_the_whole_packet();
+    test_visualizer_shares_attack_timing_across_stereo_halves();
+    test_spectral_flow_keeps_brightness_stable_while_audio_is_present();
+    test_spectral_flow_balanced_spectrum_remains_saturated();
     test_spectral_flow_ribbon_propagates_every_intermediate_frame();
-    test_spectral_flow_kick_does_not_override_high_frequency_color();
-    test_spectral_flow_body_event_is_not_diluted_by_more_high_bands();
-    test_spectral_flow_kick_priority_expires_between_hits();
-    test_spectral_flow_dominant_body_band_chooses_hue();
+    test_spectral_flow_sustained_music_keeps_defining_the_source();
     test_visualizer_flow_travel_can_be_tuned_without_rebuilding();
     test_spectral_flow_coordinates_stagger_every_row();
     test_spectral_flow_blurs_a_sharp_boundary_across_keys();
-    test_spectral_flow_brightness_carrier_shows_same_hue_motion();
-    test_spectral_flow_keeps_saturated_color_during_hue_changes();
+    test_spectral_flow_has_no_motion_unrelated_to_audio_history();
     test_shared_visualizer_uses_idle_when_audio_is_quiet();
     test_vu_rows_fill_smoothly_from_green_to_red();
     test_keyboard_vu_is_sensitive_but_still_noise_gated();
