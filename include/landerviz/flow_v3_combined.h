@@ -10,6 +10,7 @@
 #include "landerviz/flow_v3_attack.h"
 #include "landerviz/flow_v3_energy.h"
 #include "landerviz/flow_v3_mid.h"
+#include "landerviz/flow_v3_texture.h"
 #include "landerviz/protocol.h"
 
 // Compose the accepted Bass B body and Mid Lab hue at one ribbon coordinate.
@@ -58,4 +59,20 @@ void lv_flow_v3_combined_energy_attack_render(
     const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
     const lv_flow_v3_energy_t *energy,
     const lv_flow_v3_attack_t *attack, uint32_t now_ms,
+    lv_rgb_t frame[LV_KEY_COUNT]);
+
+// Texture stays on the composed slice and can shift its hue by at most 32
+// degrees. It cannot alter body, energy, attack, saturation, or lightness.
+lv_flow_v3_slice_t lv_flow_v3_combined_energy_attack_texture_sample(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack,
+    const lv_flow_v3_texture_t *texture, float coordinate,
+    uint32_t now_ms);
+
+void lv_flow_v3_combined_energy_attack_texture_render(
+    const lv_flow_v3_t *bass, const lv_flow_v3_mid_t *mids,
+    const lv_flow_v3_energy_t *energy,
+    const lv_flow_v3_attack_t *attack,
+    const lv_flow_v3_texture_t *texture, uint32_t now_ms,
     lv_rgb_t frame[LV_KEY_COUNT]);

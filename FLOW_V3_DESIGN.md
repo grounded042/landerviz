@@ -10,9 +10,10 @@ integration foundation on 2026-10-17. Later feature work must preserve all
 three tested behaviors. Energy Lab was accepted as the visibility-floor
 foundation on 2026-10-17, and its capped floor was accepted in Combined on
 2026-10-17. Attack Lab and its conservative spatial-sharpening integration
-were accepted on 2026-10-17.
+were accepted on 2026-10-17. Texture Lab and its bounded hue integration were
+accepted on 2026-10-17.
 
-The next preview-only slice has not yet been selected.
+FLOW v3 remains preview-only until the complete behavior is accepted.
 
 ## Goal
 
@@ -111,7 +112,7 @@ rendered effects:
 - The two accepted histories remain independent and unchanged. Composition is
   stateless, making regressions attributable to either input or the compositor.
 - Combined is the default v3 preview. Press `M` to cycle Combined, Energy,
-  Attack, Mid, and Bass at the same playback position.
+  Attack, Texture, Mid, and Bass at the same playback position.
 
 Combined's acceptance tests show that its body equals Bass B, its perceived
 lightness is invariant across hue both before and after the 175/255 brightness
@@ -130,8 +131,8 @@ passages can remain visible without weakening Bass B:
   creating onset flashes or beat triggers.
 - The diagnostic view uses one fixed hue. Energy controls only its continuous
   body, removing palette motion as a confounding variable.
-- Press `M` to cycle Combined, Energy, Attack, Mid, and Bass at the same
-  playback position.
+- Press `M` to cycle Combined, Energy, Attack, Texture, Mid, and Bass at the
+  same playback position.
 
 The accepted integration maps Energy onto at most 22% of the body range
 and renders with `max(bass_body, 0.22 * energy)`. This maximum is evaluated
@@ -162,8 +163,8 @@ the accepted ribbon:
 - The diagnostic renderer uses one fixed cyan hue and maps the attack signal
   to brightness. This intentionally exposes the signal; it is not the final
   visual mapping.
-- Press `M` to compare Attack with the accepted Combined, Energy, Mid, and Bass
-  views at the same playback position, or start with `--attack-lab`.
+- Press `M` to compare Attack with the accepted Combined, Energy, Texture, Mid,
+  and Bass views at the same playback position, or start with `--attack-lab`.
 
 The accepted analysis cadence is approximately 33 ms. A roughly 16 ms analysis
 cadence remains a controlled future experiment only if firmware validation
@@ -192,6 +193,54 @@ diagnostic deliberately mapped articulation straight to brightness. Those
 flashes are not part of the accepted compositor mapping. The integrated effect
 was accepted after subjective A/B checks across reference tracks with sparse
 plucks, repeated bass hits, and dense low-frequency passages.
+
+## Texture Lab contract
+
+Texture Lab tests whether sustained high-frequency content can give the ribbon
+a visible surface without becoming sparkle, noise, or another brightness
+effect:
+
+- The four highest mel-frequency bands, centered at approximately 3.2–6.1 kHz,
+  contribute as a share of power across all 12 bands. Left and right merge by
+  maximum per band before the ratio is calculated.
+- The ratio is instantaneous spectral shape, not per-song normalization or
+  automatic gain control. A fixed square-root curve with a 1.25 scale expands
+  the naturally small high-frequency share into a visible texture range.
+- A 70 ms rise and 220 ms fall preserve cymbal and guitar presence while
+  suppressing frame-level movement. There is no positive-difference detector,
+  threshold, refractory timer, random source, or beat trigger.
+- The isolated view maps each slice from magenta through a broad 240-degree
+  hue range while preserving one OKLCH lightness. Texture cannot brighten,
+  dim, or create material.
+- Texture is stored in each timestamped slice and moves with the ribbon. Every
+  key in a grid column receives that slice's color; rows do not receive
+  separate texture treatment and there are no independently twinkling keys.
+- Low/mid-only input produces zero texture, stereo panning cannot erase it,
+  and scaling the same spectral shape louder leaves the raw share unchanged.
+- Start with `--texture-lab` or press `M` to compare it with the other isolated
+  labs at the same playback position.
+
+The diagnostic hue range demonstrates the accepted signal and equal-lightness
+constraint; it is intentionally much broader than the Combined mapping.
+
+## Texture integration contract
+
+Combined samples Texture at the same timestamp and ribbon coordinate as the
+accepted Bass, Mid, Energy, and Attack properties:
+
+- Zero Texture is bit-for-bit the accepted Attack-shaped baseline.
+- Texture can move the composed slice's hue forward by at most 32 degrees. It
+  cannot alter body, Energy, Attack, saturation, or perceived lightness.
+- There is no high-frequency lane, per-row treatment, sparkle, random source,
+  or independent layer. The hue change travels as part of the same slice.
+- Texture integration is enabled by default in Combined. Press `X` to compare
+  it with the exact accepted Attack-shaped baseline at the same playback
+  position.
+
+The bounded integration was accepted after same-position A/B checks on Blue,
+ID, Radioactive, When I'm Small, and Frontier. Its effect remains deliberately
+subtle: high-frequency detail colors the existing material without becoming a
+separate effect.
 
 ## Spatial and temporal rules
 

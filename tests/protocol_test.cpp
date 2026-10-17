@@ -15,6 +15,7 @@
 #include "landerviz/flow_v3_combined.h"
 #include "landerviz/flow_v3_energy.h"
 #include "landerviz/flow_v3_mid.h"
+#include "landerviz/flow_v3_texture.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/protocol.h"
 #include "landerviz/usb_bridge.h"
@@ -1175,6 +1176,184 @@ static void test_flow_v3_attack_integration_only_tightens_existing_body() {
     assert(lv_flow_v3_energy_floor_body(silence.energy) == 0.0f);
 }
 
+static void test_flow_v3_texture_tracks_high_frequency_share() {
+    lv_channel_analysis_t low[LV_AUDIO_CHANNEL_COUNT]{};
+    low[0].mel_level[2] = 0.6f;
+    low[1].mel_level[2] = 0.6f;
+    assert(lv_flow_v3_texture_level(low) == 0.0f);
+
+    lv_channel_analysis_t bright[LV_AUDIO_CHANNEL_COUNT]{};
+    bright[0].mel_level[2] = 0.3f;
+    bright[1].mel_level[2] = 0.3f;
+    bright[0].mel_level[9] = 0.3f;
+    bright[1].mel_level[9] = 0.3f;
+    const float bright_share = lv_flow_v3_texture_level(bright);
+    assert(bright_share > 0.0f);
+
+    lv_channel_analysis_t louder = bright[0];
+    for (float &level : louder.mel_level) level *= 2.0f;
+    lv_channel_analysis_t louder_stereo[LV_AUDIO_CHANNEL_COUNT] = {
+        louder,
+        louder,
+    };
+    assert(std::fabs(lv_flow_v3_texture_level(louder_stereo) -
+                     bright_share) < 0.001f);
+}
+
+static void test_flow_v3_texture_is_sustained_and_smooth() {
+    lv_flow_v3_texture_t texture{};
+    lv_channel_analysis_t quiet[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_flow_v3_texture_update(&texture, quiet, true, 0);
+
+    lv_channel_analysis_t bright[LV_AUDIO_CHANNEL_COUNT]{};
+    bright[0].mel_level[10] = 0.7f;
+    bright[1].mel_level[10] = 0.7f;
+    lv_flow_v3_texture_update(&texture, bright, true, 33);
+    const float rising = texture.features.texture;
+    assert(rising > 0.0f);
+    assert(rising < texture.features.target);
+
+    for (uint32_t now_ms = 66; now_ms <= 1000; now_ms += 33) {
+        lv_flow_v3_texture_update(&texture, bright, true, now_ms);
+    }
+    const float sustained = texture.features.texture;
+    assert(std::fabs(sustained - texture.features.target) < 0.01f);
+
+    lv_flow_v3_texture_update(&texture, quiet, true, 1033);
+    assert(texture.features.texture < sustained);
+    assert(texture.features.texture > 0.0f);
+}
+
+static void test_flow_v3_texture_stereo_merge_is_phase_safe() {
+    lv_channel_analysis_t left[LV_AUDIO_CHANNEL_COUNT]{};
+    left[0].mel_level[1] = 0.2f;
+    left[0].mel_level[11] = 0.5f;
+    lv_channel_analysis_t right[LV_AUDIO_CHANNEL_COUNT]{};
+    right[1] = left[0];
+    assert(std::fabs(lv_flow_v3_texture_level(left) -
+                     lv_flow_v3_texture_level(right)) < 0.001f);
+}
+
+static void test_flow_v3_texture_transport_interpolates_continuously() {
+    lv_flow_v3_texture_t texture{};
+    texture.travel_ms = 100;
+    texture.history[0] = {330.0f, 255.0f, 0.2f, 0.2f,
+                          0.0f, 0.2f, 0};
+    texture.history[1] = {330.0f, 255.0f, 0.8f, 0.8f,
+                          0.0f, 0.8f, 100};
+    texture.history_count = 2;
+    texture.history_head = 2;
+    const auto halfway = lv_flow_v3_texture_sample(
+        &texture, 0.5f, 100);
+    assert(std::fabs(halfway.texture - 0.5f) < 0.001f);
+    assert(std::fabs(halfway.body - 0.5f) < 0.001f);
+}
+
+static void test_flow_v3_texture_changes_slice_hue_not_lightness() {
+    lv_flow_v3_slice_t smooth{};
+    smooth.body = 1.0f;
+    smooth.texture = 0.0f;
+    const auto smooth_color = lv_flow_v3_texture_color(smooth, 0.0f);
+
+    smooth.texture = 1.0f;
+    const auto textured_color = lv_flow_v3_texture_color(smooth, 0.0f);
+    assert(smooth_color.r != textured_color.r ||
+           smooth_color.g != textured_color.g ||
+           smooth_color.b != textured_color.b);
+    assert(std::fabs(lv_flow_v3_color_lightness(smooth_color) -
+                     lv_flow_v3_color_lightness(textured_color)) < 0.012f);
+}
+
+static void test_flow_v3_texture_renders_one_value_per_column() {
+    lv_flow_v3_texture_t texture{};
+    texture.travel_ms = 100;
+    texture.history[0] = {330.0f, 255.0f, 1.0f, 1.0f,
+                          0.0f, 0.0f, 0};
+    texture.history[1] = {330.0f, 255.0f, 1.0f, 1.0f,
+                          0.0f, 1.0f, 100};
+    texture.history_count = 2;
+    texture.history_head = 2;
+
+    lv_rgb_t frame[LV_KEY_COUNT]{};
+    lv_flow_v3_texture_render(&texture, 100, frame);
+    const auto first = frame[lv_key_at(1, 0, 0)];
+    for (int row = 1; row < 5; ++row) {
+        const auto color = frame[lv_key_at(1, 0, row)];
+        assert(color.r == first.r);
+        assert(color.g == first.g);
+        assert(color.b == first.b);
+    }
+}
+
+static void test_flow_v3_texture_integration_is_bounded_and_equal_lightness() {
+    lv_flow_v3_t bass{};
+    bass.history[0] = {195.0f, 255.0f, 0.60f, 0.60f,
+                       0.0f, 0.0f, 0};
+    bass.history_count = 1;
+    bass.history_head = 1;
+
+    lv_flow_v3_mid_t mids{};
+    mids.history[0] = {240.0f, 255.0f, 1.0f, 1.0f,
+                       0.0f, 0.0f, 0};
+    mids.history_count = 1;
+    mids.history_head = 1;
+
+    lv_flow_v3_energy_t energy{};
+    energy.history[0] = {195.0f, 255.0f, 0.50f, 0.50f,
+                         0.0f, 0.0f, 0};
+    energy.history_count = 1;
+    energy.history_head = 1;
+
+    lv_flow_v3_attack_t attack{};
+    attack.history[0] = {195.0f, 255.0f, 0.0f, 0.0f,
+                         0.40f, 0.0f, 0};
+    attack.history_count = 1;
+    attack.history_head = 1;
+
+    lv_flow_v3_texture_t texture{};
+    texture.history[0] = {330.0f, 255.0f, 1.0f, 1.0f,
+                          0.0f, 0.0f, 0};
+    texture.history_count = 1;
+    texture.history_head = 1;
+
+    constexpr float coordinate = 0.0f;
+    constexpr uint32_t now_ms = 100;
+    const auto baseline = lv_flow_v3_combined_energy_attack_sample(
+        &bass, &mids, &energy, &attack, coordinate, now_ms);
+    const auto inert = lv_flow_v3_combined_energy_attack_texture_sample(
+        &bass, &mids, &energy, &attack, &texture, coordinate, now_ms);
+    assert(inert.hue == baseline.hue);
+    assert(inert.body == baseline.body);
+    assert(inert.energy == baseline.energy);
+    assert(inert.attack == baseline.attack);
+    assert(inert.texture == 0.0f);
+
+    texture.history[0].texture = 1.0f;
+    const auto textured = lv_flow_v3_combined_energy_attack_texture_sample(
+        &bass, &mids, &energy, &attack, &texture, coordinate, now_ms);
+    assert(std::fabs(textured.hue - baseline.hue - 32.0f) < 0.001f);
+    assert(textured.body == baseline.body);
+    assert(textured.energy == baseline.energy);
+    assert(textured.attack == baseline.attack);
+    assert(textured.texture == 1.0f);
+
+    const auto baseline_color = lv_flow_v3_combined_energy_color(
+        baseline, coordinate);
+    const auto textured_color = lv_flow_v3_combined_energy_color(
+        textured, coordinate);
+    assert(std::fabs(lv_flow_v3_color_lightness(baseline_color) -
+                     lv_flow_v3_color_lightness(textured_color)) < 0.012f);
+
+    bass.history[0].body = 0.0f;
+    bass.history[0].energy = 0.0f;
+    energy.history[0].body = 0.0f;
+    energy.history[0].energy = 0.0f;
+    const auto silence = lv_flow_v3_combined_energy_attack_texture_sample(
+        &bass, &mids, &energy, &attack, &texture, coordinate, now_ms);
+    const auto off = lv_flow_v3_combined_energy_color(silence, coordinate);
+    assert(off.r == 0 && off.g == 0 && off.b == 0);
+}
+
 static void test_flow_v3_transport_interpolates_between_slices() {
     lv_flow_v3_t flow{};
     flow.travel_ms = 100;
@@ -2029,6 +2208,13 @@ int main() {
     test_flow_v3_attack_transport_interpolates_continuously();
     test_flow_v3_attack_integration_is_inert_at_zero();
     test_flow_v3_attack_integration_only_tightens_existing_body();
+    test_flow_v3_texture_tracks_high_frequency_share();
+    test_flow_v3_texture_is_sustained_and_smooth();
+    test_flow_v3_texture_stereo_merge_is_phase_safe();
+    test_flow_v3_texture_transport_interpolates_continuously();
+    test_flow_v3_texture_changes_slice_hue_not_lightness();
+    test_flow_v3_texture_renders_one_value_per_column();
+    test_flow_v3_texture_integration_is_bounded_and_equal_lightness();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();
