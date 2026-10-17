@@ -99,7 +99,7 @@ open -n result-preview/LanderViz.app --args --fps 30 "/absolute/path/song.mp3"
 Use `T` to cycle FLOW v1/v2/v3 at the same playback position, left/right or
 number keys 1–5 to change mode, space to pause, `R` to restart, `G` to compare
 realistic light spill with the flat diagnostic view, `M` to cycle the v3
-Combined/Mid/Bass views, `B` to compare Bass A/B inside the Bass Lab,
+Combined/Energy/Mid/Bass views, `B` to compare Bass A/B inside the Bass Lab,
 `[`/`]` to change the simulated frame rate, comma/period to make FLOW
 slower/faster in 10 ms increments, and escape or `Q` to quit. The title bar
 shows the active FLOW engine, mode, frame rate, FLOW travel time, and lighting
@@ -107,19 +107,19 @@ style.
 `--travel-ms N` sets the initial 50–1000 ms per-column travel time. `--frames
 N` exits after N rendered frames and is intended for automated smoke tests.
 `--flow-v1`, `--flow-v2`, or `--flow-v3` selects an engine at startup. The
-default is v3. Within v3, `M` cycles the Combined, isolated Mid, and frozen
-Bass views; `--combined-lab`, `--mid-lab`, and `--bass-lab` choose the startup
-view, with Combined as the default. In the Bass Lab, `B` switches between the
-frozen direct bass envelope (Lab A) and bounded slow-bed contrast expansion
-(Lab B); `--bass-a` and `--bass-b` choose the bass version, with the accepted
-Lab B bass foundation as the default. Combined always uses Bass B. `--trace
-FILE.csv` records the pre-gain
+default is v3. Within v3, `M` cycles the Combined, isolated Energy, isolated
+Mid, and frozen Bass views; `--combined-lab`, `--energy-lab`, `--mid-lab`, and
+`--bass-lab` choose the startup view, with Combined as the default. In the
+Bass Lab, `B` switches between the frozen direct bass envelope (Lab A) and
+bounded slow-bed contrast expansion (Lab B); `--bass-a` and `--bass-b` choose
+the bass version, with the accepted Lab B bass foundation as the default.
+Combined always uses Bass B. `--trace FILE.csv` records the pre-gain
 gate,
 shared gain, per-channel energy, centroid, dominance, and low/mid/high onset
 flux, adaptive thresholds, strengths, and trigger decisions once per analyzed
 audio frame, plus the v3 bass and midrange level, absolute and contrast
 centroids, contrast strength, base/target/rendered hue, and presence
-diagnostics. Add
+diagnostics, and the isolated Energy Lab raw, target, and smoothed levels. Add
 `--analyze-only` to process the complete track without opening a window or
 playing audio; it requires `--trace` and an audio file and prints the three
 accepted v2 onset counts when complete. FLOW v2 keeps its base color and

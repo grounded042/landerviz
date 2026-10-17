@@ -136,7 +136,7 @@
         buildPhase = ''
           runHook preBuild
           $CXX -std=c++17 -O2 -Wall -Wextra -Werror -DLANDERVIZ_PREVIEW_FLOW_V2 -DLANDERVIZ_PREVIEW_FLOW_V3 -Iinclude \
-            tools/preview.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_combined.cpp src/visualizer.cpp \
+            tools/preview.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_combined.cpp src/flow_v3_energy.cpp src/visualizer.cpp \
             $(pkg-config --cflags --libs sdl2) -o landerviz-preview
           runHook postBuild
         '';
@@ -177,7 +177,7 @@
         dontConfigure = true;
         buildPhase = ''
           $CXX -std=c++17 -Wall -Wextra -Werror -DLANDERVIZ_PREVIEW_FLOW_V2 -DLANDERVIZ_PREVIEW_FLOW_V3 -Iinclude \
-            tests/protocol_test.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_combined.cpp src/visualizer.cpp src/usb_status.cpp \
+            tests/protocol_test.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_combined.cpp src/flow_v3_energy.cpp src/visualizer.cpp src/usb_status.cpp \
             -o protocol_test
           ./protocol_test
         '';

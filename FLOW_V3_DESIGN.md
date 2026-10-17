@@ -5,10 +5,11 @@ RP2040 firmware until its behavior is accepted in the desktop preview.
 
 Status: Bass Lab B was accepted as the frozen bass foundation on 2026-10-17.
 Lab A remains available as its comparison baseline. Mid Lab was accepted as
-the frozen hue foundation on 2026-10-17. Later feature work must preserve both
-tested behaviors.
+the frozen hue foundation on 2026-10-17. Combined Lab was accepted as their
+integration foundation on 2026-10-17. Later feature work must preserve all
+three tested behaviors.
 
-Combined Lab is the current preview-only integration experiment.
+Energy Lab is the current isolated preview-only experiment.
 
 ## Goal
 
@@ -109,9 +110,30 @@ rendered effects:
 - Combined is the default v3 preview. Press `M` to cycle Combined, Mid, and
   Bass at the same playback position.
 
-Before Combined can be accepted, tests must show that its body equals Bass B,
-its perceived lightness is invariant across hue both before and after the
-175/255 brightness cap, and the frozen 39-kick Bass B regression still passes.
+Combined's acceptance tests show that its body equals Bass B, its perceived
+lightness is invariant across hue both before and after the 175/255 brightness
+cap, and the frozen 39-kick Bass B regression still passes.
+
+## Energy Lab contract
+
+Energy Lab isolates a smooth whole-spectrum presence signal so bass-light
+passages can remain visible without weakening Bass B:
+
+- Stereo RMS (root mean square) level merges by maximum, so panning and phase
+  cannot cancel the signal.
+- The mapping is fixed and song-independent. It uses the existing soft noise
+  gate and no automatic gain control.
+- A 140 ms attack and 520 ms release follow phrase-level intensity without
+  creating onset flashes or beat triggers.
+- The diagnostic view uses one fixed hue. Energy controls only its continuous
+  body, removing palette motion as a confounding variable.
+- Press `M` to cycle Combined, Energy, Mid, and Bass at the same playback
+  position.
+
+Energy must be accepted in isolation before integration. The later compositor
+may use it only as a capped visibility floor beneath Bass B's existing
+perceived-lightness curve. It must not modify Bass B's body, brighten a bass
+peak that already exceeds the floor, or become a separate visual layer.
 
 ## Spatial and temporal rules
 

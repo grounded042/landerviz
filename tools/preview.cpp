@@ -19,6 +19,7 @@
 #include "landerviz/flow_v2.h"
 #include "landerviz/flow_v3.h"
 #include "landerviz/flow_v3_combined.h"
+#include "landerviz/flow_v3_energy.h"
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/visualizer.h"
@@ -33,6 +34,7 @@ constexpr int kGlowTextureSize = 112;
 
 enum class FlowV3Lab {
     COMBINED,
+    ENERGY,
     MID,
     BASS,
 };
@@ -58,8 +60,8 @@ struct KeyRect {
 
 void usage(const char *program) {
     std::fprintf(stderr,
-                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] [--analyze-only] FILE\n"
-                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] --demo\n"
+                 "usage: %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--energy-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] [--analyze-only] FILE\n"
+                 "       %s [--fps N] [--travel-ms N] [--frames N] [--trace CSV] [--flow-v1|--flow-v2|--flow-v3] [--combined-lab|--energy-lab|--mid-lab|--bass-lab] [--bass-a|--bass-b] --demo\n"
                  "       %s [--fps N] [--travel-ms N] [--frames N] --demo-kicks\n",
                  program, program, program);
 }
@@ -91,6 +93,8 @@ bool parse_options(int argc, char **argv, Options *options) {
             options->bass_contrast = true;
         } else if (argument == "--combined-lab") {
             options->flow_v3_lab = FlowV3Lab::COMBINED;
+        } else if (argument == "--energy-lab") {
+            options->flow_v3_lab = FlowV3Lab::ENERGY;
         } else if (argument == "--bass-lab") {
             options->flow_v3_lab = FlowV3Lab::BASS;
         } else if (argument == "--mid-lab") {
@@ -452,7 +456,7 @@ std::FILE *open_trace(const std::string &path) {
     }
     std::fprintf(
         trace,
-        "audio_ms,gate_open,gain,raw_left,raw_right,value_left,value_right,raw_centroid_left_hz,raw_centroid_right_hz,centroid_left_hz,centroid_right_hz,palette_left,palette_right,dominance_left,dominance_right,flux_low,threshold_low,onset_low,triggered_low,flux_mid,threshold_mid,onset_mid,triggered_mid,flux_high,threshold_high,onset_high,triggered_high,v3_raw_bass,v3a_body,v3b_body,v3_attack,v3_hue,mid_raw,mid_centroid_hz,mid_contrast_centroid_hz,mid_contrast_strength,mid_base_hue,mid_target_hue,mid_hue,mid_presence\n");
+        "audio_ms,gate_open,gain,raw_left,raw_right,value_left,value_right,raw_centroid_left_hz,raw_centroid_right_hz,centroid_left_hz,centroid_right_hz,palette_left,palette_right,dominance_left,dominance_right,flux_low,threshold_low,onset_low,triggered_low,flux_mid,threshold_mid,onset_mid,triggered_mid,flux_high,threshold_high,onset_high,triggered_high,v3_raw_bass,v3a_body,v3b_body,v3_attack,v3_hue,mid_raw,mid_centroid_hz,mid_contrast_centroid_hz,mid_contrast_strength,mid_base_hue,mid_target_hue,mid_hue,mid_presence,energy_raw,energy_target,energy\n");
     return trace;
 }
 
@@ -460,10 +464,11 @@ void write_trace_row(std::FILE *trace,
                      const lv_flow_v2_features_t &features,
                      const lv_flow_v3_features_t &v3a,
                      const lv_flow_v3_features_t &v3b,
-                     const lv_flow_v3_mid_features_t &mids) {
+                     const lv_flow_v3_mid_features_t &mids,
+                     const lv_flow_v3_energy_features_t &energy) {
     std::fprintf(
         trace,
-        "%u,%d,%.6f,%.6f,%.6f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.3f,%.6f,%.3f,%.3f,%.6f,%.3f,%.3f,%.3f,%.6f\n",
+        "%u,%d,%.6f,%.6f,%.6f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.3f,%.6f,%.3f,%.3f,%.6f,%.3f,%.3f,%.3f,%.6f,%.6f,%.6f,%.6f\n",
         features.audio_time_ms, features.gate_open ? 1 : 0, features.gain,
         features.channel[0].raw_level, features.channel[1].raw_level,
         features.channel[0].value, features.channel[1].value,
@@ -483,7 +488,7 @@ void write_trace_row(std::FILE *trace,
         v3a.raw_bass, v3a.body, v3b.body, v3b.attack, v3b.hue,
         mids.raw_level, mids.centroid_hz, mids.contrast_centroid_hz,
         mids.contrast_strength, mids.base_hue, mids.target_hue, mids.hue,
-        mids.presence);
+        mids.presence, energy.raw_level, energy.target, energy.energy);
 }
 
 bool write_offline_trace(const std::vector<float> &audio,
@@ -496,6 +501,7 @@ bool write_offline_trace(const std::vector<float> &audio,
     lv_flow_v3_t flow_v3_a{};
     lv_flow_v3_t flow_v3_b{};
     lv_flow_v3_mid_t flow_v3_mid{};
+    lv_flow_v3_energy_t flow_v3_energy{};
     lv_flow_v3_set_bass_contrast(&flow_v3_b, true);
     uint32_t onset_counts[3]{};
     uint32_t trace_rows = 0;
@@ -530,13 +536,16 @@ bool write_offline_trace(const std::vector<float> &audio,
                           audio_midpoint_ms);
         lv_flow_v3_mid_update(&flow_v3_mid, analysis, above_gate,
                               audio_midpoint_ms);
+        lv_flow_v3_energy_update(&flow_v3_energy, analysis, above_gate,
+                                 audio_midpoint_ms);
         for (int band = 0; band < 3; ++band) {
             if (flow_v2.features.onset_triggered[band]) {
                 ++onset_counts[band];
             }
         }
         write_trace_row(trace, flow_v2.features, flow_v3_a.features,
-                        flow_v3_b.features, flow_v3_mid.features);
+                        flow_v3_b.features, flow_v3_mid.features,
+                        flow_v3_energy.features);
         ++trace_rows;
     }
     const bool closed = std::fclose(trace) == 0;
@@ -553,6 +562,7 @@ void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
                     lv_flow_v2_t *flow_v2, lv_flow_v3_t *flow_v3_a,
                     lv_flow_v3_t *flow_v3_b,
                     lv_flow_v3_mid_t *flow_v3_mid,
+                    lv_flow_v3_energy_t *flow_v3_energy,
                     size_t *analyzed_frames,
                     bool kick_packets_enabled) {
     const uint16_t flow_travel_ms =
@@ -576,6 +586,7 @@ void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
     *flow_v3_a = {};
     *flow_v3_b = {};
     *flow_v3_mid = {};
+    *flow_v3_energy = {};
     lv_flow_v3_set_bass_contrast(flow_v3_b, true);
     lv_visualizer_set_flow_travel_ms(visualizer, flow_travel_ms);
     lv_visualizer_set_flow_kick_packets(visualizer, kick_packets_enabled);
@@ -583,6 +594,7 @@ void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
     lv_flow_v3_set_travel_ms(flow_v3_a, flow_v3_travel_ms);
     lv_flow_v3_set_travel_ms(flow_v3_b, flow_v3_travel_ms);
     lv_flow_v3_mid_set_travel_ms(flow_v3_mid, flow_v3_travel_ms);
+    lv_flow_v3_energy_set_travel_ms(flow_v3_energy, flow_v3_travel_ms);
     *analyzed_frames = 0;
 }
 
@@ -686,6 +698,7 @@ int main(int argc, char **argv) {
     lv_flow_v3_t flow_v3_a{};
     lv_flow_v3_t flow_v3_b{};
     lv_flow_v3_mid_t flow_v3_mid{};
+    lv_flow_v3_energy_t flow_v3_energy{};
     lv_flow_v3_set_bass_contrast(&flow_v3_b, true);
     lv_visualizer_set_flow_travel_ms(
         &visualizer, (uint16_t)options.flow_travel_ms);
@@ -697,11 +710,13 @@ int main(int argc, char **argv) {
                              (uint16_t)options.flow_travel_ms);
     lv_flow_v3_mid_set_travel_ms(&flow_v3_mid,
                                  (uint16_t)options.flow_travel_ms);
+    lv_flow_v3_energy_set_travel_ms(&flow_v3_energy,
+                                    (uint16_t)options.flow_travel_ms);
     lv_rgb_t frame[LV_KEY_COUNT]{};
     size_t analyzed_frames = 0;
     reset_playback(device, audio, analysis, &activity, &visualizer, &flow_v2,
-                   &flow_v3_a, &flow_v3_b, &flow_v3_mid, &analyzed_frames,
-                   options.kick_demo);
+                   &flow_v3_a, &flow_v3_b, &flow_v3_mid, &flow_v3_energy,
+                   &analyzed_frames, options.kick_demo);
     SDL_PauseAudioDevice(device, 0);
 
     lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
@@ -749,7 +764,7 @@ int main(int argc, char **argv) {
                 case SDLK_r:
                     reset_playback(device, audio, analysis, &activity,
                                    &visualizer, &flow_v2, &flow_v3_a,
-                                   &flow_v3_b, &flow_v3_mid,
+                                   &flow_v3_b, &flow_v3_mid, &flow_v3_energy,
                                    &analyzed_frames, options.kick_demo);
                     detected_kicks = 0;
                     std::fill(onset_counts, onset_counts + 3, 0);
@@ -787,6 +802,8 @@ int main(int argc, char **argv) {
                     break;
                 case SDLK_m:
                     if (flow_v3_lab == FlowV3Lab::COMBINED) {
+                        flow_v3_lab = FlowV3Lab::ENERGY;
+                    } else if (flow_v3_lab == FlowV3Lab::ENERGY) {
                         flow_v3_lab = FlowV3Lab::MID;
                     } else if (flow_v3_lab == FlowV3Lab::MID) {
                         flow_v3_lab = FlowV3Lab::BASS;
@@ -817,6 +834,8 @@ int main(int argc, char **argv) {
                         lv_flow_v3_set_travel_ms(&flow_v3_b, travel_ms);
                         lv_flow_v3_mid_set_travel_ms(&flow_v3_mid,
                                                      travel_ms);
+                        lv_flow_v3_energy_set_travel_ms(&flow_v3_energy,
+                                                        travel_ms);
                     }
                     break;
                 case SDLK_PERIOD:
@@ -833,6 +852,8 @@ int main(int argc, char **argv) {
                         lv_flow_v3_set_travel_ms(&flow_v3_b, travel_ms);
                         lv_flow_v3_mid_set_travel_ms(&flow_v3_mid,
                                                      travel_ms);
+                        lv_flow_v3_energy_set_travel_ms(&flow_v3_energy,
+                                                        travel_ms);
                     }
                     break;
                 default: break;
@@ -864,7 +885,8 @@ int main(int argc, char **argv) {
             played_frames >= total_audio_frames && analyzed_frames > 0) {
             reset_playback(device, audio, analysis, &activity, &visualizer,
                            &flow_v2, &flow_v3_a, &flow_v3_b, &flow_v3_mid,
-                           &analyzed_frames, options.kick_demo);
+                           &flow_v3_energy, &analyzed_frames,
+                           options.kick_demo);
             detected_kicks = 0;
             std::fill(onset_counts, onset_counts + 3, 0);
             observed_kick_ms = 0;
@@ -908,6 +930,8 @@ int main(int argc, char **argv) {
                                   audio_midpoint_ms);
                 lv_flow_v3_mid_update(&flow_v3_mid, analysis, above_gate,
                                       audio_midpoint_ms);
+                lv_flow_v3_energy_update(&flow_v3_energy, analysis,
+                                         above_gate, audio_midpoint_ms);
                 for (int band = 0; band < 3; ++band) {
                     if (flow_v2.features.onset_triggered[band]) {
                         ++onset_counts[band];
@@ -917,7 +941,8 @@ int main(int argc, char **argv) {
                     write_trace_row(trace, flow_v2.features,
                                     flow_v3_a.features,
                                     flow_v3_b.features,
-                                    flow_v3_mid.features);
+                                    flow_v3_mid.features,
+                                    flow_v3_energy.features);
                     if (++trace_rows % 30 == 0) std::fflush(trace);
                 }
             }
@@ -932,6 +957,9 @@ int main(int argc, char **argv) {
                 if (flow_v3_lab == FlowV3Lab::COMBINED) {
                     lv_flow_v3_combined_render(
                         &flow_v3_b, &flow_v3_mid, now_ms, frame);
+                } else if (flow_v3_lab == FlowV3Lab::ENERGY) {
+                    lv_flow_v3_energy_render(
+                        &flow_v3_energy, now_ms, frame);
                 } else if (flow_v3_lab == FlowV3Lab::MID) {
                     lv_flow_v3_mid_render(&flow_v3_mid, now_ms, frame);
                 } else {
@@ -976,6 +1004,11 @@ int main(int argc, char **argv) {
                                   "FLOW v3 COMBINED bass %.2f hue %.0f",
                                   flow_v3_b.features.body,
                                   flow_v3_mid.features.hue);
+                } else if (flow_v3_lab == FlowV3Lab::ENERGY) {
+                    std::snprintf(mode_status, sizeof(mode_status),
+                                  "FLOW v3 ENERGY raw %.2f body %.2f",
+                                  flow_v3_energy.features.raw_level,
+                                  flow_v3_energy.features.energy);
                 } else if (flow_v3_lab == FlowV3Lab::MID) {
                     std::snprintf(mode_status, sizeof(mode_status),
                                   "FLOW v3 MID %.0f Hz hue %.0f",
@@ -1003,7 +1036,7 @@ int main(int argc, char **argv) {
         }
         std::snprintf(
             title, sizeof(title),
-            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [M combined/mid/bass] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
+            "LanderViz — %s — %d fps — %u ms/column — %s light — [T v1/v2/v3] [M combined/energy/mid/bass] [B bass A/B] [1-5 mode] [G light] [,/. speed] [brackets: fps] [space pause] — %s",
             mode_status, options.fps,
             lv_visualizer_flow_travel_ms(&visualizer),
             realistic_lighting ? "realistic" : "flat",

@@ -12,6 +12,7 @@
 #include "landerviz/flow_v2.h"
 #include "landerviz/flow_v3.h"
 #include "landerviz/flow_v3_combined.h"
+#include "landerviz/flow_v3_energy.h"
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/protocol.h"
@@ -831,6 +832,75 @@ static void test_flow_v3_combined_hue_preserves_bass_lightness() {
     silence.hue = 120.0f;
     const auto off = lv_flow_v3_combined_color(silence, 0.0f);
     assert(off.r == 0 && off.g == 0 && off.b == 0);
+}
+
+static void test_flow_v3_energy_uses_fixed_phase_safe_full_spectrum_level() {
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT]{};
+    audio[0].rms_level = 0.10f;
+    audio[1].rms_level = 0.30f;
+    audio[0].mel_level[1] = 1.0f;
+    audio[1].mel_level[10] = 1.0f;
+
+    const float raw = lv_flow_v3_energy_level(audio);
+    assert(std::fabs(raw - 0.30f * 1.41421356f) < 0.001f);
+
+    lv_flow_v3_energy_t first{};
+    lv_flow_v3_energy_t second{};
+    lv_flow_v3_energy_update(&first, audio, true, 0);
+    lv_flow_v3_energy_update(&second, audio, true, 5000);
+    assert(std::fabs(first.features.target - second.features.target) <
+           0.001f);
+    assert(std::fabs(first.features.energy - second.features.energy) <
+           0.001f);
+
+    lv_flow_v3_energy_t gated{};
+    lv_flow_v3_energy_update(&gated, audio, false, 0);
+    assert(gated.features.target == 0.0f);
+    assert(gated.features.energy == 0.0f);
+}
+
+static void test_flow_v3_energy_has_smooth_attack_and_release() {
+    lv_flow_v3_energy_t energy{};
+    lv_channel_analysis_t quiet[LV_AUDIO_CHANNEL_COUNT]{};
+    quiet[0].rms_level = 0.04f;
+    quiet[1].rms_level = 0.04f;
+    lv_flow_v3_energy_update(&energy, quiet, true, 0);
+    const float quiet_level = energy.features.energy;
+
+    lv_channel_analysis_t loud[LV_AUDIO_CHANNEL_COUNT]{};
+    loud[0].rms_level = 0.45f;
+    loud[1].rms_level = 0.45f;
+    lv_flow_v3_energy_update(&energy, loud, true, 33);
+    const float attack = energy.features.energy;
+    assert(attack > quiet_level);
+    assert(attack < energy.features.target);
+
+    for (uint32_t now_ms = 66; now_ms <= 1000; now_ms += 33) {
+        lv_flow_v3_energy_update(&energy, loud, true, now_ms);
+    }
+    const float sustained = energy.features.energy;
+    assert(std::fabs(sustained - energy.features.target) < 0.01f);
+
+    lv_flow_v3_energy_update(&energy, quiet, true, 1033);
+    const float release = energy.features.energy;
+    assert(release < sustained);
+    assert(release > energy.features.target);
+}
+
+static void test_flow_v3_energy_transport_interpolates_continuously() {
+    lv_flow_v3_energy_t energy{};
+    energy.travel_ms = 100;
+    energy.history[0] = {195.0f, 255.0f, 0.2f, 0.2f,
+                         0.0f, 0.0f, 0};
+    energy.history[1] = {195.0f, 255.0f, 0.8f, 0.8f,
+                         0.0f, 0.0f, 100};
+    energy.history_count = 2;
+    energy.history_head = 2;
+
+    const auto halfway = lv_flow_v3_energy_sample(
+        &energy, 0.5f, 100);
+    assert(std::fabs(halfway.energy - 0.5f) < 0.001f);
+    assert(std::fabs(halfway.body - 0.5f) < 0.001f);
 }
 
 static void test_flow_v3_transport_interpolates_between_slices() {
@@ -1675,6 +1745,9 @@ int main() {
     test_flow_v3_mid_sustained_change_returns_to_base_hue();
     test_flow_v3_combined_sample_preserves_bass_body();
     test_flow_v3_combined_hue_preserves_bass_lightness();
+    test_flow_v3_energy_uses_fixed_phase_safe_full_spectrum_level();
+    test_flow_v3_energy_has_smooth_attack_and_release();
+    test_flow_v3_energy_transport_interpolates_continuously();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();
