@@ -1,18 +1,19 @@
 # LanderViz PCB specification
 
-Status: reconciled design basis, 2026-10-15.
+Status: reconciled design basis with hardware-accepted FLOW v3, 2026-10-18.
 
 LanderViz is a standalone audio visualizer for a ZSA Moonlander Mark I,
 hardware revision A. It sits between the keyboard and the Mac, samples stereo
-line audio from a mixer, performs a per-channel FFT on an RP2040, and sends
-per-key RGB frames to custom Moonlander firmware. No visualization software
-runs on the Mac.
+line audio from a mixer, performs FFT analysis on an RP2040, and sends per-key
+RGB frames to custom Moonlander firmware. FLOW averages the channels for one
+mono FFT; SPECTRUM retains independent per-channel FFTs. No visualization
+software runs on the Mac.
 
-The breadboard prototype validates the end-to-end architecture. The repository
-at <https://github.com/grounded042/landerviz> is the behavioral, protocol,
-pin-map, and wiring reference after the current breadboard milestone is
-committed and pushed. Record that commit in the PCB release notes before
-ordering boards.
+The breadboard prototype validates the end-to-end architecture. Repository
+commit `ebb5dcd` is the hardware-accepted FLOW v3 firmware milestone. The
+repository at <https://github.com/grounded042/landerviz> is the behavioral,
+protocol, pin-map, and wiring reference. Record the final PCB-design baseline
+commit in the release notes before ordering boards.
 
 ## Status vocabulary
 
@@ -35,7 +36,8 @@ The prototype has demonstrated:
 - LCD status, mode-button input, silence detection, and all visualization
   modes;
 - complete-system power from a data port on the powered Anker hub; and
-- sustained delivery of approximately 30 complete RGB frames per second.
+- sustained delivery of approximately 30 complete RGB frames per second with
+  no missed analysis windows and responsive keyboard forwarding.
 
 Thirty FPS is the current proven target, not 60 FPS. The Moonlander firmware's
 26 ms LED flush interval imposes a ceiling of approximately 38 FPS, so 60 FPS
@@ -100,6 +102,13 @@ The visualization, analysis, USB-bridge, and Moonlander protocol code carries
 over. Firmware is not literally unchanged: the raw-chip board target, any pin
 assignment changes, the display driver, and board-specific initialization must
 be implemented and tested.
+
+The RP2040 selection is validated for the frozen revision-A behavior, not for
+unbounded future expansion. The accepted build measured 12.5 ms total analysis
+and 17.0 ms render/submit time inside a 33.3 ms frame period while also
+servicing both USB roles and the LCD. A heavier analysis model, stereo FLOW,
+or a faster display requires fresh profiling; it is not a reason to upsize the
+processor before such a requirement exists.
 
 ## GPIO map
 

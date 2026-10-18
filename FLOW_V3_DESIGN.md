@@ -2,8 +2,8 @@
 
 FLOW v3 was designed and accepted in the desktop preview before being ported
 to the RP2040 firmware. The firmware uses the same feature extractors and
-compositor; only its expensive color conversion is replaced by an interpolated
-flash-resident lookup table.
+compositor on a deliberate mono analysis input; its expensive color conversion
+is replaced by an interpolated flash-resident lookup table.
 
 Status: Bass Lab B was accepted as the frozen bass foundation on 2026-10-17.
 Lab A remains available as its comparison baseline. Mid Lab was accepted as
@@ -15,9 +15,10 @@ foundation on 2026-10-17, and its capped floor was accepted in Combined on
 were accepted on 2026-10-17. Texture Lab and its bounded hue integration were
 accepted on 2026-10-17.
 
-The complete preview behavior is accepted. Firmware integration and profiling
-instrumentation are implemented; physical-keyboard timing and appearance
-validation remain before the v3 firmware replaces the last known-good build.
+The complete preview behavior and RP2040 firmware port are accepted. Physical
+keyboard validation completed on 2026-10-18 at approximately 30 complete RGB
+frames per second with no missed analysis windows and responsive typing. FLOW
+v3 is now the hardware-accepted default.
 
 ## Goal
 
@@ -46,6 +47,17 @@ The finished model uses three timescales:
 - Fast state follows attacks and articulation.
 - Medium state follows groove, note bodies, and riffs.
 - Slow state follows phrase energy and palette context.
+
+The reference preview analyzes both stereo channels and merges shared features
+by maximum, which preserves panned content and cannot cancel opposite phases.
+The deployed RP2040 averages left and right samples before one FFT to keep USB
+forwarding and 30 FPS rendering inside the measured CPU budget. Its feature
+extractors therefore receive two identical copies of that mono analysis. This
+preserves the accepted feature and compositor behavior for ordinary stereo
+material, but unusually strong opposite-phase content can cancel during the
+mono average. That measured trade-off is accepted for revision A. Independent
+left/right RMS levels remain available for the LCD and silence detection, and
+the SPECTRUM mode retains independent left/right FFT analysis.
 
 The first v3 lab intentionally isolates bass so its timing can be judged. It
 renders only the continuous bass envelope; attack shaping is deferred until
@@ -283,22 +295,25 @@ separate effect.
 - No beat grid or tempo prediction in the first lab. Those are candidates only
   if continuous causal features cannot meet the timing criteria.
 
-## Firmware validation gate
+## Firmware validation result
 
-The port is not considered hardware-accepted until all of these pass on the
-breadboard prototype:
+The breadboard port passed its hardware gate on 2026-10-18:
 
-1. Flash the RP2040 and recheck Blue, ID, Radioactive, When I'm Small, and
-   Frontier against the accepted preview behavior.
-2. Confirm 27–30 complete RGB frames per second while typing and while the LCD
-   is refreshing.
-3. Inspect the LCD profiling pages for analysis/render headroom, missed audio
-   windows, both USB service gaps, and keyboard-report latency.
-4. If and only if those measurements expose a problem, optimize the history
-   lookup or test the 61 Hz analysis cadence as isolated changes.
-5. After hardware acceptance, remove or clearly archive obsolete v1-specific
-   firmware documentation and decide whether the preview-only comparison
-   engines remain worth carrying.
+1. The accepted appearance was rechecked on the Moonlander across multiple
+   reference and additional music tracks. It is accepted as good for the
+   current revision, with further aesthetic tuning explicitly optional.
+2. The firmware sustains approximately 30 complete RGB frames per second while
+   typing and refreshing the LCD.
+3. The final observed steady-state maxima were `A125 R170 F115 E012 D114 H003
+   K101`, in tenths of a millisecond, with `M000` stable. Total analysis was
+   therefore 12.5 ms and render/submit was 17.0 ms inside the 33.3 ms frame
+   period; no due analysis window was missed, and typing felt responsive.
+4. The accepted analysis cadence remains approximately 30.5 Hz. A 61 Hz
+   experiment is not justified by the measurements and would spend the
+   revision-A timing margin without an accepted requirement.
+5. FLOW v1, v2, and the isolated v3 labs remain development-preview comparison
+   tools because they are useful regression references. Firmware behavior and
+   user-facing firmware documentation describe v3 as the sole FLOW engine.
 
 Optional later experiments are deliberately outside this gate: a stronger
 slow phrase-level palette context, richer two-dimensional geometry,

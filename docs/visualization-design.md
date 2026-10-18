@@ -70,8 +70,11 @@ song-independent signals are extracted and transported together:
 
 None of these signals renders an independent lane, row, flash, or overlay.
 Bass owns the material's body and perceived lightness; the other signals shape
-or color that same material. Stereo channels merge by maximum where a shared
-feature is needed, preserving panned content without phase cancellation.
+or color that same material. The reference preview merges stereo channels by
+maximum where a shared feature is needed. Revision-A firmware instead averages
+the time-domain samples and performs one mono FFT, an accepted CPU trade-off
+that leaves independent stereo FFTs available to SPECTRUM. Rare opposite-phase
+content can cancel in FLOW's mono input.
 
 Each property keeps a 128-slice timestamped history. Rendering uses the audio
 window midpoint rather than analysis-completion time, and a key samples the
@@ -86,11 +89,12 @@ interpolated lookup table for firmware, avoiding per-key trigonometry while
 retaining equal-lightness hues. Distance applies a small 2.5% per-column fade.
 FLOW adds no periodic carrier, randomness, or autonomous brightness motion.
 
-Tests lock down the five feature contracts, stereo merge, continuous temporal
-and spatial interpolation, equal-lightness color, close repeated rises,
-sustained content, noise gating, and the absence of independent layers. See
-the [FLOW v3 design contract](../FLOW_V3_DESIGN.md) for exact accepted bounds
-and the firmware validation gate.
+Tests lock down the five feature contracts, reference stereo merge, deployed
+mono preparation (including its accepted cancellation behavior), continuous
+temporal and spatial interpolation, equal-lightness color, close repeated
+rises, sustained content, noise gating, and the absence of independent layers.
+See the [FLOW v3 design contract](../FLOW_V3_DESIGN.md) for exact accepted
+bounds and hardware-validation result.
 
 ## References
 
