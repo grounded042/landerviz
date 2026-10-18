@@ -1,13 +1,16 @@
 # LanderViz PCB specification
 
-Status: reconciled design basis with hardware-accepted FLOW v3, 2026-10-18.
+Status: reconciled design basis with hardware-accepted FLOW v3 and frozen
+revision-A compute/display choices, 2026-10-18.
 
-LanderViz is a standalone audio visualizer for a ZSA Moonlander Mark I,
-hardware revision A. It sits between the keyboard and the Mac, samples stereo
-line audio from a mixer, performs FFT analysis on an RP2040, and sends per-key
-RGB frames to custom Moonlander firmware. FLOW averages the channels for one
-mono FFT; SPECTRUM retains independent per-channel FFTs. No visualization
-software runs on the Mac.
+LanderViz is a standalone audio visualizer whose revision-A printed circuit
+board (PCB) targets a ZSA Moonlander Mark I. It sits between the keyboard and
+the Mac, samples stereo line audio from a mixer, performs fast Fourier
+transform (FFT) analysis on an RP2354A, and sends per-key red/green/blue (RGB)
+frames to custom Moonlander firmware. FLOW averages the channels for one mono
+FFT; SPECTRUM retains independent per-channel FFTs. No visualization software
+runs on the Mac. The proven breadboard uses an RP2040; revision A's RP2354A
+selection is the deliberate custom-board successor.
 
 The breadboard prototype validates the end-to-end architecture. Repository
 commit `ebb5dcd` is the hardware-accepted FLOW v3 firmware milestone. The
@@ -30,18 +33,18 @@ The prototype has demonstrated:
 
 - independent stereo audio capture and FFT processing;
 - USB host operation toward the Moonlander;
-- ordinary HID keyboard reports forwarded to macOS;
+- ordinary Human Interface Device (HID) keyboard reports forwarded to macOS;
 - per-key RGB delivery over the vendor Raw HID protocol;
 - eight 32-byte Raw HID packets per complete RGB frame;
-- LCD status, mode-button input, silence detection, and all visualization
-  modes;
+- liquid-crystal display (LCD) status, mode-button input, silence detection,
+  and all visualization modes;
 - complete-system power from a data port on the powered Anker hub; and
 - sustained delivery of approximately 30 complete RGB frames per second with
   no missed analysis windows and responsive keyboard forwarding.
 
-Thirty FPS is the current proven target, not 60 FPS. The Moonlander firmware's
-26 ms LED flush interval imposes a ceiling of approximately 38 FPS, so 60 FPS
-is not a revision-A requirement.
+Thirty frames per second (FPS) is the current proven target, not 60 FPS. The
+Moonlander firmware's 26 ms LED flush interval imposes a ceiling of
+approximately 38 FPS, so 60 FPS is not a revision-A requirement.
 
 If RGB packets stop for 500 ms, the Moonlander returns to its own layer
 lighting. Both firmwares cap brightness at 175/255.
@@ -54,70 +57,81 @@ platform.
 ## Frozen topology
 
 ```text
-Moonlander -- downstream USB --> RP2040 -- upstream USB --> powered hub --> Mac
-                                      |
-                                      +-- stereo audio input
-                                      +-- external display port
-                                      +-- mode button
+Moonlander -- downstream USB --> RP2354A -- upstream USB --> powered hub --> Mac
+                                       |
+                                       +-- stereo audio input
+                                       +-- external display port
+                                       +-- mode button
 ```
 
-The RP2040 is a USB host toward the keyboard and a USB device toward the Mac.
-Native RP2040 USB is upstream. Pico-PIO-USB implements the downstream host on
-GPIO0/D+ and GPIO1/D- through two 22 ohm series resistors. Typing is forwarded
-to the Mac; visualization data travels in the opposite direction to the
-Moonlander.
+The RP2354A is a Universal Serial Bus (USB) host toward the keyboard and a USB
+device toward the Mac. Native RP2354A USB is upstream. Pico-PIO-USB uses the
+chip's programmable input/output (PIO) hardware to implement the downstream
+host on general-purpose input/output (GPIO) pins 0/D+ and 1/D- through two
+22 ohm series resistors. Typing is forwarded to the Mac; visualization data
+travels in the opposite direction to the Moonlander.
 
 ## Compute — frozen
 
-Revision A uses a bare RP2040 in its 56-pin QFN package, assembled by JLCPCB,
-not a Pro Micro module. **QFN** means quad-flat no-lead, a fine-pitch surface
-mount package. It can be reworked with appropriate equipment, but the project
-does not depend on hand assembly or repair of the RP2040; order spare boards.
+Revision A uses a bare RP2354A in its 60-pin, 7 x 7 mm QFN package, assembled
+by JLCPCB, not a Pro Micro module. **QFN** means quad-flat no-lead, a fine-pitch
+surface-mount package. RP2354A provides two Arm Cortex-M33 cores with hardware
+single-precision floating point and digital signal processing instructions,
+520 kB of static random-access memory (SRAM), and 2 MB of stacked program
+flash. Revision A uses the Arm cores so the existing Cortex Microcontroller
+Software Interface Standard DSP library (CMSIS-DSP) integration carries
+forward. The project does not depend on hand assembly or repair of the
+processor; order spare boards.
 
 Follow Raspberry Pi's
-[Hardware design with RP2040](https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf)
+[Hardware design with RP2350](https://datasheets.raspberrypi.com/rp2350/hardware-design-with-rp2350.pdf)
 reference design and checklist. The minimum design includes:
 
 - a 12 MHz crystal and its correctly calculated load capacitors;
-- supported external QSPI flash, because RP2040 has no internal program flash;
+- the RP2354A boot configuration and integrated-flash requirements exactly as
+  specified by the reference design;
 - a 5 V-to-3.3 V regulator;
-- all required local supply and core-regulator decoupling capacitors;
-- the required ADC supply/reference treatment;
+- all required local supply, core-regulator, inductor, and decoupling
+  components;
+- the required analog-to-digital converter (ADC) supply/reference treatment;
 - 27 ohm series resistors on native upstream USB D+ and D-;
-- BOOTSEL and reset/RUN controls; and
-- SWD debug pads plus 5 V, 3.3 V, and ground test points.
+- boot-select (BOOTSEL) and reset/RUN controls; and
+- Serial Wire Debug (SWD) pads plus 5 V, 3.3 V, and ground test points.
 
-**QSPI** is the four-data-line serial interface used for external program
-flash. **SWD** is Serial Wire Debug, the RP2040 programming and debug
-interface.
-
-W25Q128JV is a candidate flash, not a frozen selection. Choose the smallest
-supported capacity that comfortably fits the firmware and is available for
-assembly. Verify boot-ROM/Pico SDK support, package footprint, JLCPCB/LCSC
-stock, and lifecycle at BOM release. JLCPCB part number `C2761095` is a
-procurement hint for RP2040, not a permanent design identifier; verify it at
-order time.
+SWD is the processor's programming and debug interface.
+Revision A adds no external flash or pseudo-static random-access memory
+(PSRAM): the integrated 2 MB flash is the program store, and additional memory
+is outside the frozen scope. At bill-of-materials (BOM) release, verify the
+RP2354A stepping, package, JLCPCB/LCSC stock, lifecycle, and Pico software
+development kit (SDK) support. Require A4 silicon or a later stepping
+explicitly accepted after reviewing its errata.
 
 The visualization, analysis, USB-bridge, and Moonlander protocol code carries
 over. Firmware is not literally unchanged: the raw-chip board target, any pin
 assignment changes, the display driver, and board-specific initialization must
 be implemented and tested.
 
-The RP2040 selection is validated for the frozen revision-A behavior, not for
-unbounded future expansion. The accepted build measured 12.5 ms total analysis
-and 17.0 ms render/submit time inside a 33.3 ms frame period while also
-servicing both USB roles and the LCD. A heavier analysis model, stereo FLOW,
-or a faster display requires fresh profiling; it is not a reason to upsize the
-processor before such a requirement exists.
+The RP2040 breadboard remains the behavioral and timing baseline: its accepted
+build measured 12.5 ms total analysis and 17.0 ms render/submit time inside a
+33.3 ms frame period while servicing both USB roles and the LCD. RP2354A is
+selected to retain the Pico SDK and PIO architecture while adding compute and
+memory headroom and eliminating external flash. Do not assume a specific speed
+increase: the assembled revision-A board must still pass the 30 FPS, USB, ADC,
+and keyboard-latency acceptance checks.
 
 ## GPIO map
 
+**I2C** means Inter-Integrated Circuit, a bidirectional two-signal serial bus.
+Its signals are **SDA** (serial data) and **SCL** (serial clock).
+
 These assignments are frozen:
 
-| Function | RP2040 pin |
+| Function | RP2354A pin |
 |---|---:|
 | PIO-USB host D+ | GPIO0 through 22 ohms |
 | PIO-USB host D- | GPIO1 through 22 ohms |
+| Display/expansion I2C1 SDA | GPIO2 |
+| Display/expansion I2C1 SCL | GPIO3 |
 | Left audio | GPIO26 / ADC0 |
 | Right audio | GPIO27 / ADC1 |
 | Mode button | GPIO8 |
@@ -126,9 +140,10 @@ The mode button uses the internal pull-up resistor and approximately 30 ms
 debounce. A short press selects the next mode; holding for more than 800 ms
 selects the previous mode.
 
-GPIO2 through GPIO7 drove the prototype's parallel LCD. They are available for
-the external serial display and expansion interfaces, but their final mapping
-is open until the connector pinout is frozen.
+GPIO2 through GPIO7 drove the prototype's parallel LCD. Revision A reuses
+GPIO2 and GPIO3 as the native I2C1 data and clock pins shared by the display
+port and the 3.3 V digital expansion footprint. GPIO4 through GPIO7 remain
+available for the expansion interface; their final mapping is open.
 
 ## USB-C connectors — frozen form, open power details
 
@@ -158,7 +173,7 @@ A 22 kilohm CC pull-up advertises 1.5 A. That value is not yet approved. The
 current firmware declares a 500 mA upstream USB requirement, and a 1.5 A-rated
 fuse or switch does not make 1.5 A available from the hub. The downstream port
 must not advertise more current than the complete upstream path can supply
-after reserving power for the RP2040, audio frontend, and display.
+after reserving power for the RP2354A, audio frontend, and display.
 
 Choose the downstream CC pull-ups only after power measurements and the
 upstream source contract are known. Default-current advertisement is the safe
@@ -166,10 +181,11 @@ baseline for the proven USB-A-to-USB-C hub setup. If 1.5 A advertisement is a
 requirement, the upstream Type-C source and the board must both establish and
 support that budget without relying on USB Power Delivery.
 
-The exact downstream attachment and VBUS switching circuit is open. Revision A
-should use current-limited, protected VBUS switching if the size and component
-budget permit it. Document any deliberate departure from standards-compliant
-attach-controlled VBUS before schematic approval.
+**VBUS** is the 5 V USB bus-power rail. The exact downstream attachment and
+VBUS switching circuit is open. Revision A should use current-limited,
+protected VBUS switching if the size and component budget permit it. Document
+any deliberate departure from standards-compliant attach-controlled VBUS
+before schematic approval.
 
 ## Power architecture — partially frozen
 
@@ -184,11 +200,15 @@ upstream USB-C VBUS
 
 upstream USB-C VBUS
     -> 3.3 V regulator
-    -> RP2040 and 3.3 V logic
+    -> RP2354A and 3.3 V logic
 
 upstream USB-C VBUS
     -> protected/switched 5 V display output
 ```
+
+The display output is sized only for revision A's 5 V PCF8574T-backed 16x2
+character LCD. Vacuum fluorescent displays are not supported or included in
+the revision-A power budget.
 
 The Pro Micro underside-VBUS connection was a breadboard expedient and does
 not appear on this board. Retain approximately 470 microfarads of bulk
@@ -202,9 +222,16 @@ available current rather than a nominal “1.5 A class” goal.
 
 ### Power-budget measurement — order blocker
 
-Use a USB power meter to record:
+Use the
+[FNIRSI FNB58](https://www.fnirsi.com/products/fnb58), or an equivalent
+logging USB power meter with USB 2.0 data passthrough, to record voltage and
+current curves at up to 100 samples per second. Insert it between the powered
+Anker hub's data port and LanderViz so it measures the complete system. A
+simple two-readings-per-second charging meter is insufficient for the startup
+and LED-transition checks. Record the breadboard baseline first and repeat the
+same cases on the assembled PCB:
 
-- the PCB without the Moonlander or display;
+- the controller without the Moonlander or display;
 - the Moonlander connected with visualization idle;
 - typical visualization current;
 - the worst observed current at `BRIGHTNESS_CAP`;
@@ -213,21 +240,23 @@ Use a USB power meter to record:
 - each supported display at typical and maximum brightness; and
 - startup/inrush current with the Moonlander and target display connected.
 
-The prototype's approximately 4.99 V downstream measurement demonstrates
-feasibility, not the complete power budget.
+The meter cannot prove extremely short electrical spikes. If its recorded
+curve shows material voltage sag, unstable enumeration, or insufficient margin,
+repeat the suspect transition with a faster instrument before selecting the
+power-path ratings. The prototype's approximately 4.99 V downstream
+measurement demonstrates feasibility, not the complete power budget.
 
-The Noritake CU16029-UW1J is especially important here. Its
-[official datasheet](https://www.noritake-itron.com/site2017/images/Specs/VFD/57CLEM/CU16029-UW1J/CU16029-UW1J_e01-b1.pdf)
-specifies 340 mA typical and 450 mA maximum with the display on, and warns that
-startup current may be twice its usual value. A 500 mA upstream budget cannot
-simultaneously guarantee that display, the Moonlander, and the controller.
-This conflict must be resolved before the VFD is declared a supported
-bus-powered configuration.
+**VFD** means vacuum fluorescent display. VFD support is deferred to revision
+B or later because these displays can require substantially more operating and
+startup current than the revision-A character liquid-crystal display (LCD).
+Adding one later requires a fresh power budget, interface-voltage review, and
+connector review.
 
 ## Audio frontend — frozen topology, open protection/filter values
 
-The 3.5 mm TRS jack and both analog input stages are on the main PCB. There is
-no audio codec in revision A and no pluggable analog submodule.
+The 3.5 mm tip/ring/sleeve (TRS) stereo jack and both analog input stages are
+on the main PCB. There is no audio codec in revision A and no pluggable analog
+submodule.
 
 Each channel retains its own circuit:
 
@@ -247,9 +276,9 @@ TRS signal ---- 10 uF coupling capacitor ---- ADC node
 
 The channels must not share a bias node. If polarized capacitors are used,
 their positive terminals face the 1.65 V ADC nodes. Use matched 1% bias
-resistors. Firmware currently adds 8x, or approximately +18 dB, visualization
-gain because the proven passive mixer attenuates its output. Clip indication
-is based on the physical ADC input before that gain.
+resistors. Firmware currently adds 8x, or approximately +18 decibels (dB),
+visualization gain because the proven passive mixer attenuates its output. Clip
+indication is based on the physical ADC input before that gain.
 
 Revision A should add appropriately sized input protection and an anti-alias
 low-pass filter for the 15.625 kHz-per-channel sample rate. **Anti-alias** means
@@ -273,7 +302,7 @@ On the PCB, preserve that intent with placement and return-current control,
 not a split ground plane:
 
 - Use a continuous low-impedance ground plane.
-- Place the analog frontend together near the RP2040 ADC pins.
+- Place the analog frontend together near the RP2354A ADC pins.
 - Route downstream keyboard and display power so their high current returns
   flow directly toward the upstream power entry rather than through the analog
   region.
@@ -290,60 +319,57 @@ An external stereo transformer ground-loop isolator remains the remedy for a
 persistent mixer/USB ground loop. The PCB must not implement an unsafe ground
 lift.
 
-## External display — frozen architecture, open connector
+## External display — frozen
 
 The display is external and pluggable; the prototype's parallel QC1602A is not
-mounted on the main board. The display connection is serial so displays can be
-changed without revising the main PCB.
+mounted on the main board. Revision A supports one display class: a 5 V,
+HD44780-compatible 16x2 character LCD with a PCF8574T I2C backpack. The
+accepted purchasing reference is the Teyleten Robot three-pack identified by
+Amazon product identifier `B07T8ZG5D1`; delivered units must still pass the
+checks below because commodity-module revisions can change without notice.
 
-Candidate displays include:
+All VFD modules, including the Noritake CU16029-UW1J and GU-series graphic
+modules, are explicitly outside revision A. The board does not reserve their
+current budget or include their specialized 5 V bidirectional interface.
+Graphical OLED modules are also deferred to revision B or later.
 
-- Noritake CU-series character VFD modules using their synchronous serial
-  interface;
-- an HD44780-compatible character display through a PCF8574 I2C backpack;
-- Noritake GU graphic VFD modules; and
-- 128x64 OLED modules using I2C or SPI.
+Revision A runs the display's I2C bus at 100 kHz for PCF8574T compatibility.
 
-**I2C** is a two-signal shared serial bus. **SPI** is a faster clocked serial
-interface with separate data and device-select signals.
+The main board uses a keyed, four-position JST-PH 2.0 mm-pitch connector with
+this frozen pinout:
 
-The connector and pinout remain open. The preferred direction is a keyed port
-carrying:
+| Pin | Signal | External level |
+|---:|---|---:|
+| 1 | GND | 0 V |
+| 2 | display power | 5 V |
+| 3 | SDA | 5 V I2C |
+| 4 | SCL | 5 V I2C |
 
-- 5 V;
-- 3.3 V;
-- ground;
-- I2C data and clock;
-- SPI data-out, data-in, clock, and chip-select/strobe; and
-- optional reset or one spare GPIO if the pin/size budget permits.
+The cable is straight-through to the backpack's labeled `GND`, `VCC`, `SDA`,
+and `SCL` pins. Confirm the footprint's pin-one orientation against the exact
+JST drawing and mark both connector ends clearly; wire color is not the source
+of truth.
 
-A 128x64 one-bit framebuffer is 1024 bytes. A full transfer consumes roughly
-20 ms at 400 kHz I2C before protocol overhead, but approximately 1 ms over a
-typical multi-megahertz SPI link. Providing both buses avoids forcing a slow
-graphic-display path later.
+RP2354A pins are not 5 V tolerant. The main board therefore includes
+bidirectional, open-drain-compatible level translation between the internal
+3.3 V I2C1 bus and the external 5 V display bus. **Open-drain** means a device
+can pull a signal low but relies on a resistor to return it high, allowing
+multiple I2C devices to share the wire safely. Select the exact translator and
+pull-up resistor values during schematic capture after inspecting the delivered
+backpacks; do not assume their fitted pull-up values.
 
-The CU16029-UW1J is not ordinary SPI even though it is synchronous serial. Its
-six-pin serial connector uses VCC, bidirectional SI/SO, GND, STB, SCK, and an
-optional reset pin. The datasheet specifies a 5 V supply and a minimum logic
-high of 0.7 × VCC on SI/SO, so 3.3 V drive is not guaranteed; SI/SO output can
-also exceed the RP2040's safe input voltage. The final port therefore needs an
-explicit 3.3 V/5 V level-translation strategy, or a documented write-only
-interface with suitable unidirectional translation. SCK and STB have different
-input thresholds, but one coherent level-shifting design is preferable to
-depending on that asymmetry.
+Firmware probes the common PCF8574T address `0x27` and PCF8574A address `0x3F`,
+then uses the verified backpack-to-LCD pin mapping. The delivered modules must
+be checked for address, mapping, contrast adjustment, backlight control,
+100 kHz communication, and refresh behavior on the RP2040 breadboard before
+the PCB is ordered. The display driver becomes a replaceable firmware
+interface even though revision A ships only this character-display backend.
 
-The VFD datasheet also advises a cable no longer than 30 cm and warns against
-connecting or disconnecting it while powered. Capture those constraints in
-the enclosure and operating documentation.
-
-The display driver must become a replaceable firmware interface. Revision A
-needs at least one implemented serial driver before the parallel LCD pins can
-be considered truly released.
-
-## Digital expansion footprint — frozen
+## Digital expansion footprint — frozen presence, open connector
 
 Provide an unpopulated expansion footprint on the digital side for a future
-codec or microphone module. It should expose:
+codec or microphone module. **I2S** means Inter-IC Sound, a clocked digital
+audio bus. The footprint should expose:
 
 - I2S data, bit clock, and word-select clock;
 - I2C data and clock;
@@ -352,11 +378,11 @@ codec or microphone module. It should expose:
 - ground; and
 - at least one spare GPIO.
 
-**I2S** is a clocked digital-audio bus. No analog audio crosses this connector.
-The exact connector, GPIO assignment, and whether any signals can be shared
-with the display port remain open. If this footprint prevents the main board
-from meeting the size target, return for an explicit scope decision rather
-than silently increasing board size.
+No analog audio crosses this connector. The expansion footprint shares the
+internal 3.3 V I2C1 bus on GPIO2/GPIO3 with the display level translator. Its
+exact connector and remaining GPIO assignments remain open. If this footprint
+prevents the main board from meeting the size target, return for an explicit
+scope decision rather than silently increasing board size.
 
 ## Mechanical target
 
@@ -365,7 +391,7 @@ That is a placement target, not yet a guaranteed outline. It must accommodate:
 
 - two USB-C receptacles;
 - one 3.5 mm TRS jack;
-- the RP2040 support circuit;
+- the RP2354A support circuit;
 - the analog frontend;
 - protected Moonlander and display power paths;
 - the bulk capacitor;
@@ -381,22 +407,24 @@ the required analog/power separation at the target size.
 
 ## Revision-A review gate
 
-ERC and DRC—the CAD tool's electrical-rule and design-rule checks—are
+Electrical-rules check (ERC) and design-rules check (DRC) are the
+computer-aided design tool's automated schematic and layout checks. They are
 necessary but cannot prove the board will work. Before fabrication:
 
 1. Commit and push the known-good breadboard milestone and record its commit.
-2. Freeze the display and expansion connector pinouts and GPIO assignments.
-3. Resolve the upstream budget, downstream CC advertisement, VBUS switch, and
-   optional VFD power conflict.
-4. Select the regulator, flash, crystal/load capacitors, USB protection, and
-   assembly-supported packages.
+2. Verify the frozen display connector pinout and freeze the remaining
+   expansion connector pinout and GPIO assignments.
+3. Resolve the upstream budget, downstream CC advertisement, and VBUS switch
+   for the controller, Moonlander, and frozen character display.
+4. Select the regulator, crystal/load capacitors, USB protection, RP2354A
+   stepping, and assembly-supported packages.
 5. Calculate or simulate the audio protection and anti-alias filter, then
    validate any material change to the proven input response.
 6. Freeze the enclosure and connector geometry after a component placement
    study confirms the 35–40 mm target is credible.
-7. Check every RP2040 support net against Raspberry Pi's hardware-design
-   checklist, including crystal, flash, core supply, ADC supply, USB, BOOTSEL,
-   and exposed-pad grounding.
+7. Check every RP2354A support net and boot setting against Raspberry Pi's
+   hardware-design checklist, including crystal, integrated-flash boot, core
+   supply, ADC supply, USB, BOOTSEL, and exposed-pad grounding.
 8. Review both USB-C ports in both cable orientations. Explicitly verify that
    upstream CC uses pull-downs and downstream CC uses pull-ups.
 9. Review high-current return paths and ensure no USB or clock trace crosses a
