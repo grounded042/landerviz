@@ -54,42 +54,43 @@ not model its software floating-point cost or USB transport.
 
 ## FLOW implementation
 
-`FLOW` consumes 12 overlapping triangular frequency bands spaced on the mel
-scale from 60 Hz to 7.5 kHz. The mel scale approximates how humans perceive
-pitch, while overlapping bands retain energy near a band boundary instead of
-assigning it abruptly to one rectangular bucket. These bands are separate
-from the legacy logarithmic peak bands used by the LCD and other modes.
+`FLOW` v3 consumes both the legacy low-frequency FFT regions and 12 overlapping
+triangular frequency bands spaced on the mel scale. The mel scale approximates
+how humans perceive pitch, while overlapping bands retain energy near a band
+boundary instead of assigning it abruptly to one rectangular bucket.
 
-Every analysis frame calculates the spectrum's weighted center and biases it
-toward the strongest band. That position selects a fully saturated source hue
-from a palette that moves from bass red through body magenta/blue and presence
-cyan/green/amber. Per-band peak followers keep quieter regions relevant, while
-a shared peak follower preserves whole-packet loudness changes. A kick
-reinforces the lowest mel band. There is no spectral-flux gate or delayed hue
-target: sustained notes and every new spectrum continue defining the source.
+Every analysis frame produces one timestamped music slice. Five continuous,
+song-independent signals are extracted and transported together:
 
-Every hue/value source packet is timestamped in a 96-entry history. The
-history is a literal moving record of the audio: a transient produces a
-distinct packet that travels outward. Audible packets retain a 20% brightness
-floor after adaptive gain rather than being compressed into a nearly constant
-brightness. Hue is unwrapped before storage and interpolated in hue space, so
-neighboring packets remain saturated instead of becoming pastel RGB blends.
+- low-frequency energy supplies the ribbon body;
+- midrange spectral position supplies hue;
+- whole-spectrum energy supplies a capped visibility floor;
+- positive multi-band spectral change sharpens the body's existing edge; and
+- sustained high-frequency share adds a bounded hue shift.
 
-Each key receives a fractional ribbon coordinate derived from its outward
-distance and row. One column represents 110 milliseconds of history, and each
-successive row is offset by 0.11 column (about 12 milliseconds). The two halves
-use opposite row phase.
+None of these signals renders an independent lane, row, flash, or overlay.
+Bass owns the material's body and perceived lightness; the other signals shape
+or color that same material. Stereo channels merge by maximum where a shared
+feature is needed, preserving panned content without phase cancellation.
 
-The renderer samples five nearby ribbon positions at offsets
-`-0.70, -0.35, 0, +0.35, +0.70`, weighted `1, 4, 6, 4, 1`. This spatial filter
-spreads a hard color boundary across multiple keys. Distance applies a small
-3% per-column fade. FLOW adds no periodic carrier or other autonomous motion;
-changes in the ribbon come from its recorded audio packets.
+Each property keeps a 128-slice timestamped history. Rendering uses the audio
+window midpoint rather than analysis-completion time, and a key samples the
+history at its fractional outward coordinate. One column represents 110
+milliseconds. Neighboring timestamps are interpolated, rows are slightly
+staggered, and a three-point spatial blur spreads a boundary across adjacent
+positions. Attack can only tighten that existing blur; it cannot create light.
 
-Tests should lock down behavior rather than tuning accidents: fractional row
-coordinates, broad transitions at sharp source boundaries, frame-independent
-propagation, mel-band placement and overlap, sustained content, saturation,
-loudness dynamics, noise gating, and the absence of unrelated motion.
+Vivid output is generated at the perceived lightness of the accepted bass
+curve. The desktop implementation's OKLCH gamut search is precomputed into an
+interpolated lookup table for firmware, avoiding per-key trigonometry while
+retaining equal-lightness hues. Distance applies a small 2.5% per-column fade.
+FLOW adds no periodic carrier, randomness, or autonomous brightness motion.
+
+Tests lock down the five feature contracts, stereo merge, continuous temporal
+and spatial interpolation, equal-lightness color, close repeated rises,
+sustained content, noise gating, and the absence of independent layers. See
+the [FLOW v3 design contract](../FLOW_V3_DESIGN.md) for exact accepted bounds
+and the firmware validation gate.
 
 ## References
 

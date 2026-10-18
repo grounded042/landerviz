@@ -30,29 +30,11 @@ float log_level(float level) {
            std::log1p(attack_log_scale);
 }
 
-float envelope(float current, float target, uint32_t elapsed_ms,
-               float attack_ms, float release_ms) {
-    const float time_constant = target > current ? attack_ms : release_ms;
-    return current + (target - current) *
-                         response(elapsed_ms, time_constant);
-}
-
-lv_flow_v3_slice_t blend(const lv_flow_v3_slice_t &first,
-                         const lv_flow_v3_slice_t &second, float amount) {
-    amount = std::clamp(amount, 0.0f, 1.0f);
-    const auto mix = [amount](float a, float b) {
-        return a + (b - a) * amount;
-    };
-    return {
-        attack_lab_hue,
-        255.0f,
-        0.0f,
-        0.0f,
-        mix(first.attack, second.attack),
-        0.0f,
-        (uint32_t)std::lround(mix((float)first.audio_time_ms,
-                                 (float)second.audio_time_ms)),
-    };
+float envelope(float current, float target, float attack_response,
+               float release_response) {
+    const float amount = target > current ? attack_response
+                                          : release_response;
+    return current + (target - current) * amount;
 }
 
 lv_flow_v3_slice_t blurred_sample(const lv_flow_v3_attack_t *state,
@@ -92,6 +74,14 @@ void lv_flow_v3_attack_update(
     bool gate_open, uint32_t audio_time_ms) {
     const uint32_t elapsed_ms =
         state->initialized ? audio_time_ms - state->last_update_ms : 0;
+    const float fast_attack_response = response(
+        elapsed_ms, attack_fast_attack_ms);
+    const float fast_release_response = response(
+        elapsed_ms, attack_fast_release_ms);
+    const float slow_attack_response = response(
+        elapsed_ms, attack_slow_attack_ms);
+    const float slow_release_response = response(
+        elapsed_ms, attack_slow_release_ms);
     float squared_attack = 0.0f;
     for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
         const float target = gate_open
@@ -104,11 +94,11 @@ void lv_flow_v3_attack_update(
             state->slow_level[band] = target;
         } else {
             state->fast_level[band] = envelope(
-                state->fast_level[band], target, elapsed_ms,
-                attack_fast_attack_ms, attack_fast_release_ms);
+                state->fast_level[band], target,
+                fast_attack_response, fast_release_response);
             state->slow_level[band] = envelope(
-                state->slow_level[band], target, elapsed_ms,
-                attack_slow_attack_ms, attack_slow_release_ms);
+                state->slow_level[band], target,
+                slow_attack_response, slow_release_response);
         }
         const float rise = std::max(
             0.0f, state->fast_level[band] - state->slow_level[band]);
@@ -150,35 +140,12 @@ void lv_flow_v3_attack_set_travel_ms(lv_flow_v3_attack_t *state,
 
 lv_flow_v3_slice_t lv_flow_v3_attack_sample(
     const lv_flow_v3_attack_t *state, float coordinate, uint32_t now_ms) {
-    if (state->history_count == 0) return {};
     const uint16_t travel_ms = state->travel_ms > 0
                                    ? state->travel_ms
-                                   : LV_FLOW_V3_DEFAULT_TRAVEL_MS;
-    const float target_time =
-        (float)now_ms - std::max(0.0f, coordinate) * travel_ms;
-    const uint16_t oldest = (uint16_t)(
-        (state->history_head + LV_FLOW_V3_HISTORY - state->history_count) %
-        LV_FLOW_V3_HISTORY);
-    const auto &first = state->history[oldest];
-    if (target_time < first.audio_time_ms) return {};
-
-    lv_flow_v3_slice_t previous = first;
-    for (uint16_t offset = 1; offset < state->history_count; ++offset) {
-        const auto &next = state->history[
-            (oldest + offset) % LV_FLOW_V3_HISTORY];
-        if (target_time <= next.audio_time_ms) {
-            const uint32_t interval = next.audio_time_ms -
-                                      previous.audio_time_ms;
-            const float amount = interval > 0
-                                     ? (target_time -
-                                        previous.audio_time_ms) /
-                                           interval
-                                     : 1.0f;
-            return blend(previous, next, amount);
-        }
-        previous = next;
-    }
-    return previous;
+                                   : (uint16_t)LV_FLOW_V3_DEFAULT_TRAVEL_MS;
+    return lv_flow_v3_history_sample(
+        state->history, state->history_head, state->history_count,
+        travel_ms, coordinate, now_ms);
 }
 
 void lv_flow_v3_attack_render(const lv_flow_v3_attack_t *state,

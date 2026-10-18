@@ -21,12 +21,21 @@ struct lv_usb_status_display_t {
     bool initialized;
 };
 
+struct lv_usb_bridge_metrics_t {
+    uint32_t max_host_task_gap_us;
+    uint32_t max_device_task_gap_us;
+    uint32_t max_keyboard_forward_us;
+    uint32_t dropped_upstream_reports;
+};
+
 void usb_bridge_init();
 void usb_bridge_device_task();
 void usb_bridge_submit_frame(const lv_rgb_t frame[LV_KEY_COUNT]);
 uint32_t usb_bridge_completed_frame_count();
 uint8_t usb_bridge_host_status();
 uint8_t usb_bridge_host_status_history();
+lv_usb_bridge_metrics_t usb_bridge_metrics();
+void usb_bridge_reset_metrics();
 const char* lv_usb_host_status_label(uint8_t status);
 const char* lv_usb_status_display_update(lv_usb_status_display_t* display,
                                          uint8_t status_history,

@@ -14,6 +14,7 @@
 #include "landerviz/flow_v3_attack.h"
 #include "landerviz/flow_v3_combined.h"
 #include "landerviz/flow_v3_energy.h"
+#include "landerviz/flow_v3_engine.h"
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/flow_v3_texture.h"
 #include "landerviz/moonlander_map.h"
@@ -143,7 +144,7 @@ static void test_release_and_mapping() {
 }
 
 static void test_pending_audio_buffer_is_not_overwritten() {
-    lv_audio_buffer_state_t buffers{0, -1};
+    lv_audio_buffer_state_t buffers{0, -1, 0, 0};
     assert(lv_audio_buffer_complete(&buffers));
     assert(buffers.ready == 0);
     assert(buffers.fill == 1);
@@ -151,11 +152,32 @@ static void test_pending_audio_buffer_is_not_overwritten() {
     assert(!lv_audio_buffer_complete(&buffers));
     assert(buffers.ready == 0);
     assert(buffers.fill == 1);
+    assert(buffers.dropped == 1);
 
     assert(lv_audio_buffer_take(&buffers) == 0);
     assert(lv_audio_buffer_complete(&buffers));
     assert(buffers.ready == 1);
     assert(buffers.fill == 0);
+    assert(buffers.dropped == 1);
+}
+
+static void test_audio_decimation_only_publishes_due_windows() {
+    lv_audio_buffer_state_t buffers{0, -1, 0, 0};
+
+    assert(lv_audio_buffer_complete_decimated(&buffers, 2));
+    assert(buffers.ready == 0);
+    assert(lv_audio_buffer_take(&buffers) == 0);
+
+    assert(!lv_audio_buffer_complete_decimated(&buffers, 2));
+    assert(buffers.ready == -1);
+    assert(buffers.dropped == 0);
+
+    assert(lv_audio_buffer_complete_decimated(&buffers, 2));
+    assert(buffers.ready == 1);
+    assert(!lv_audio_buffer_complete_decimated(&buffers, 2));
+    assert(buffers.dropped == 0);
+    assert(!lv_audio_buffer_complete_decimated(&buffers, 2));
+    assert(buffers.dropped == 1);
 }
 
 static std::array<uint16_t, LV_FFT_N> audio_tone(int bin, float amplitude) {
@@ -165,6 +187,39 @@ static std::array<uint16_t, LV_FFT_N> audio_tone(int bin, float amplitude) {
         samples[i] = (uint16_t)(LV_ADC_MID + LV_ADC_MID * amplitude * std::sin(phase));
     }
     return samples;
+}
+
+static void test_mono_mix_preserves_centered_audio_and_stereo_levels() {
+    uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N]{};
+    uint16_t mono[LV_FFT_N]{};
+    float rms[LV_AUDIO_CHANNEL_COUNT]{};
+    const auto tone = audio_tone(4, 0.4f);
+    std::copy(tone.begin(), tone.end(), stereo[0]);
+    std::copy(tone.begin(), tone.end(), stereo[1]);
+
+    lv_prepare_mono_analysis(stereo, mono, 1.0f, rms);
+
+    assert(std::equal(tone.begin(), tone.end(), mono));
+    assert(std::fabs(rms[0] - rms[1]) < 0.000001f);
+    assert(rms[0] > 0.28f && rms[0] < 0.29f);
+}
+
+static void test_mono_mix_accepts_opposite_phase_cancellation() {
+    uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N]{};
+    uint16_t mono[LV_FFT_N]{};
+    float rms[LV_AUDIO_CHANNEL_COUNT]{};
+    const auto tone = audio_tone(4, 0.4f);
+    for (int sample = 0; sample < LV_FFT_N; ++sample) {
+        stereo[0][sample] = tone[sample];
+        stereo[1][sample] =
+            (uint16_t)(2 * LV_ADC_MID - tone[sample]);
+    }
+
+    lv_prepare_mono_analysis(stereo, mono, 1.0f, rms);
+
+    for (uint16_t sample : mono) assert(sample == LV_ADC_MID);
+    assert(rms[0] > 0.28f && rms[0] < 0.29f);
+    assert(rms[1] > 0.28f && rms[1] < 0.29f);
 }
 
 static float synthetic_kick_sample(float time_seconds) {
@@ -308,6 +363,18 @@ static void test_input_gain_scales_audio_before_analysis() {
     assert(dominant_band(boosted) == dominant_band(normal));
     assert(boosted.band_level[dominant_band(boosted)] >
            normal.band_level[dominant_band(normal)] * 7.9f);
+}
+
+static void test_fft_preserves_tone_amplitude() {
+    lv_channel_analysis_t analysis{};
+    constexpr float amplitude = 0.25f;
+    const auto tone = audio_tone(8, amplitude);
+
+    lv_analyze_channel(&analysis, tone.data(), 1.0f);
+
+    const float peak = analysis.band_level[dominant_band(analysis)];
+    assert(peak > amplitude * 0.98f);
+    assert(peak < amplitude * 1.02f);
 }
 
 static void test_boosted_quiet_kick_creates_visible_envelope() {
@@ -1354,6 +1421,94 @@ static void test_flow_v3_texture_integration_is_bounded_and_equal_lightness() {
     assert(off.r == 0 && off.g == 0 && off.b == 0);
 }
 
+static int flow_v3_service_calls = 0;
+
+static void count_flow_v3_service_call() {
+    ++flow_v3_service_calls;
+}
+
+static void test_flow_v3_engine_uses_the_accepted_compositor() {
+    lv_flow_v3_engine_t engine{};
+    lv_flow_v3_engine_init(&engine);
+    assert(engine.bass.bass_contrast_enabled);
+    assert(engine.bass.travel_ms == LV_FLOW_V3_DEFAULT_TRAVEL_MS);
+    assert(engine.mids.travel_ms == LV_FLOW_V3_DEFAULT_TRAVEL_MS);
+    assert(engine.energy.travel_ms == LV_FLOW_V3_DEFAULT_TRAVEL_MS);
+    assert(engine.attack.travel_ms == LV_FLOW_V3_DEFAULT_TRAVEL_MS);
+    assert(engine.texture.travel_ms == LV_FLOW_V3_DEFAULT_TRAVEL_MS);
+
+    lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {
+        flow_v3_audio(0.30f, 0.55f, 0.48f, 2, 0.70f),
+        flow_v3_audio(0.30f, 0.40f, 0.35f, 9, 0.55f),
+    };
+    lv_flow_v3_engine_update(&engine, audio, true, 0);
+    assert(engine.bass.history_count == 1);
+    assert(engine.mids.history_count == 1);
+    assert(engine.energy.history_count == 1);
+    assert(engine.attack.history_count == 1);
+    assert(engine.texture.history_count == 1);
+
+    for (uint32_t now_ms = 33; now_ms <= 990; now_ms += 33) {
+        audio[0].band_level[0] = 0.20f +
+                                  0.50f * (float)(now_ms % 99) / 99.0f;
+        audio[0].mel_level[(now_ms / 33) % LV_MEL_BAND_COUNT] = 0.65f;
+        lv_flow_v3_engine_update(&engine, audio, true, now_ms);
+    }
+
+    constexpr uint32_t now_ms = 990;
+    lv_rgb_t engine_frame[LV_KEY_COUNT]{};
+    lv_rgb_t cooperative_frame[LV_KEY_COUNT]{};
+    lv_rgb_t direct_frame[LV_KEY_COUNT]{};
+    lv_flow_v3_engine_render(&engine, now_ms, engine_frame);
+    flow_v3_service_calls = 0;
+    lv_flow_v3_engine_render(&engine, now_ms, cooperative_frame,
+                             count_flow_v3_service_call);
+    assert(flow_v3_service_calls == LV_SPECTRAL_FLOW_COLUMNS +
+                                        LV_AUDIO_CHANNEL_COUNT);
+    assert(std::memcmp(engine_frame, cooperative_frame,
+                       sizeof(engine_frame)) == 0);
+    const auto color_at = [&engine](float coordinate) {
+        const auto sample =
+            lv_flow_v3_combined_energy_attack_texture_sample(
+                &engine.bass, &engine.mids, &engine.energy,
+                &engine.attack, &engine.texture, coordinate, now_ms);
+        return lv_flow_v3_combined_energy_color(sample, coordinate);
+    };
+    const auto set_direct = [&direct_frame](int key, lv_rgb_t color) {
+        if (key >= 0 && key < LV_KEY_COUNT) direct_frame[key] = color;
+    };
+    for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
+        for (int col = 0; col < LV_SPECTRAL_FLOW_COLUMNS; ++col) {
+            const int distance = half == 0
+                                     ? LV_SPECTRAL_FLOW_COLUMNS - 1 - col
+                                     : col;
+            for (int row = 0; row < 5; ++row) {
+                const float coordinate = lv_spectral_flow_coordinate(
+                    half, (float)distance, (float)row);
+                set_direct(lv_key_at(half, col, row),
+                           color_at(coordinate));
+            }
+        }
+        for (int key = 0; key < 3; ++key) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                half, 0.0f, (float)(key + 1));
+            set_direct(lv_utility_key_at(half, key),
+                       color_at(coordinate));
+        }
+        constexpr float thumb_distance[4] = {
+            1.25f, 0.85f, 0.45f, 0.0f,
+        };
+        for (int key = 0; key < 4; ++key) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                half, thumb_distance[key], 3.2f + key * 0.2f);
+            set_direct(lv_thumb_key_at(half, key),
+                       color_at(coordinate));
+        }
+    }
+    assert(std::memcmp(engine_frame, direct_frame,
+                       sizeof(engine_frame)) == 0);
+}
+
 static void test_flow_v3_transport_interpolates_between_slices() {
     lv_flow_v3_t flow{};
     flow.travel_ms = 100;
@@ -2157,12 +2312,16 @@ int main() {
     test_newer_frame_discards_partial_frame();
     test_release_and_mapping();
     test_pending_audio_buffer_is_not_overwritten();
+    test_audio_decimation_only_publishes_due_windows();
+    test_mono_mix_preserves_centered_audio_and_stereo_levels();
+    test_mono_mix_accepts_opposite_phase_cancellation();
     test_kick_detector_tracks_an_isolated_kick_train_end_to_end();
     test_stereo_analysis_keeps_channels_independent();
     test_mel_filterbank_tracks_perceptual_frequency_regions();
     test_silent_channel_stays_silent();
     test_biased_silence_removes_measured_dc_offset();
     test_input_gain_scales_audio_before_analysis();
+    test_fft_preserves_tone_amplitude();
     test_boosted_quiet_kick_creates_visible_envelope();
     test_perceptual_level_uses_decibel_scale_and_noise_floor();
     test_meter_level_gates_noise_without_reducing_normal_audio();
@@ -2215,6 +2374,7 @@ int main() {
     test_flow_v3_texture_changes_slice_hue_not_lightness();
     test_flow_v3_texture_renders_one_value_per_column();
     test_flow_v3_texture_integration_is_bounded_and_equal_lightness();
+    test_flow_v3_engine_uses_the_accepted_compositor();
     test_flow_v3_transport_interpolates_between_slices();
     test_spectral_flow_maps_frequency_regions_to_vivid_hues();
     test_spectral_flow_adjacent_bands_in_one_lane_do_not_blink();

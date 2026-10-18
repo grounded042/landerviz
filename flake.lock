@@ -34,6 +34,23 @@
         "type": "github"
       }
     },
+    "cmsis-dsp": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1784119605,
+        "narHash": "sha256-etzBaNz5t/vnj1pvtELqTWA7y7r01liHIT3aID7vM6w=",
+        "owner": "ARM-software",
+        "repo": "CMSIS-DSP",
+        "rev": "4b4fa8ff218ca5ac20bad71b653a37d93815f24b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ARM-software",
+        "ref": "v1.17.1",
+        "repo": "CMSIS-DSP",
+        "type": "github"
+      }
+    },
     "lufa": {
       "flake": false,
       "locked": {
@@ -122,6 +139,7 @@
       "inputs": {
         "chibios": "chibios",
         "chibios-contrib": "chibios-contrib",
+        "cmsis-dsp": "cmsis-dsp",
         "lufa": "lufa",
         "nixpkgs": "nixpkgs",
         "pico-pio-usb": "pico-pio-usb",

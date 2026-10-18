@@ -72,8 +72,8 @@ lv_flow_v3_slice_t blend(const lv_flow_v3_slice_t &first,
         mix(first.body, second.body),
         mix(first.attack, second.attack),
         mix(first.texture, second.texture),
-        (uint32_t)std::lround(mix((float)first.audio_time_ms,
-                                 (float)second.audio_time_ms)),
+        (uint32_t)(mix((float)first.audio_time_ms,
+                      (float)second.audio_time_ms) + 0.5f),
     };
 }
 
@@ -201,34 +201,44 @@ void lv_flow_v3_set_bass_contrast(lv_flow_v3_t *state, bool enabled) {
 
 lv_flow_v3_slice_t lv_flow_v3_sample(const lv_flow_v3_t *state,
                                      float coordinate, uint32_t now_ms) {
-    if (state->history_count == 0) return {};
     const uint16_t travel_ms = state->travel_ms > 0
                                    ? state->travel_ms
-                                   : LV_FLOW_V3_DEFAULT_TRAVEL_MS;
+                                   : (uint16_t)LV_FLOW_V3_DEFAULT_TRAVEL_MS;
+    return lv_flow_v3_history_sample(
+        state->history, state->history_head, state->history_count,
+        travel_ms, coordinate, now_ms);
+}
+
+lv_flow_v3_slice_t lv_flow_v3_history_sample(
+    const lv_flow_v3_slice_t history[LV_FLOW_V3_HISTORY],
+    uint16_t history_head, uint16_t history_count, uint16_t travel_ms,
+    float coordinate, uint32_t now_ms) {
+    if (history_count == 0) return {};
     const float target_time =
         (float)now_ms - std::max(0.0f, coordinate) * travel_ms;
-    const uint16_t oldest = (uint16_t)(
-        (state->history_head + LV_FLOW_V3_HISTORY - state->history_count) %
-        LV_FLOW_V3_HISTORY);
-    const auto &first = state->history[oldest];
-    if (target_time < first.audio_time_ms) return {};
+    uint16_t newer_index = (uint16_t)(
+        (history_head + LV_FLOW_V3_HISTORY - 1) % LV_FLOW_V3_HISTORY);
+    const auto &newest = history[newer_index];
+    if (target_time >= newest.audio_time_ms) return newest;
 
-    lv_flow_v3_slice_t previous = first;
-    for (uint16_t offset = 1; offset < state->history_count; ++offset) {
-        const auto &next = state->history[
-            (oldest + offset) % LV_FLOW_V3_HISTORY];
-        if (target_time <= next.audio_time_ms) {
-            const uint32_t interval = next.audio_time_ms -
-                                      previous.audio_time_ms;
+    for (uint16_t offset = 1; offset < history_count; ++offset) {
+        const uint16_t older_index = (uint16_t)(
+            (history_head + LV_FLOW_V3_HISTORY - 1 - offset) %
+            LV_FLOW_V3_HISTORY);
+        const auto &older = history[older_index];
+        if (target_time >= older.audio_time_ms) {
+            const auto &newer = history[newer_index];
+            const uint32_t interval = newer.audio_time_ms -
+                                      older.audio_time_ms;
             const float amount = interval > 0
-                                     ? (target_time - previous.audio_time_ms) /
+                                     ? (target_time - older.audio_time_ms) /
                                            interval
                                      : 1.0f;
-            return blend(previous, next, amount);
+            return blend(older, newer, amount);
         }
-        previous = next;
+        newer_index = older_index;
     }
-    return previous;
+    return {};
 }
 
 void lv_flow_v3_render(const lv_flow_v3_t *state, uint32_t now_ms,

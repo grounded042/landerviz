@@ -31,24 +31,6 @@ float envelope(float current, float target, uint32_t elapsed_ms,
                          response(elapsed_ms, time_constant);
 }
 
-lv_flow_v3_slice_t blend(const lv_flow_v3_slice_t &first,
-                         const lv_flow_v3_slice_t &second, float amount) {
-    amount = std::clamp(amount, 0.0f, 1.0f);
-    const auto mix = [amount](float a, float b) {
-        return a + (b - a) * amount;
-    };
-    return {
-        texture_lab_hue,
-        255.0f,
-        mix(first.energy, second.energy),
-        mix(first.body, second.body),
-        0.0f,
-        mix(first.texture, second.texture),
-        (uint32_t)std::lround(mix((float)first.audio_time_ms,
-                                 (float)second.audio_time_ms)),
-    };
-}
-
 void set_key(lv_rgb_t frame[LV_KEY_COUNT], int key, lv_rgb_t color) {
     if (key >= 0 && key < LV_KEY_COUNT) frame[key] = color;
 }
@@ -125,35 +107,12 @@ void lv_flow_v3_texture_set_travel_ms(lv_flow_v3_texture_t *state,
 lv_flow_v3_slice_t lv_flow_v3_texture_sample(
     const lv_flow_v3_texture_t *state, float coordinate,
     uint32_t now_ms) {
-    if (state->history_count == 0) return {};
     const uint16_t travel_ms = state->travel_ms > 0
                                    ? state->travel_ms
-                                   : LV_FLOW_V3_DEFAULT_TRAVEL_MS;
-    const float target_time =
-        (float)now_ms - std::max(0.0f, coordinate) * travel_ms;
-    const uint16_t oldest = (uint16_t)(
-        (state->history_head + LV_FLOW_V3_HISTORY - state->history_count) %
-        LV_FLOW_V3_HISTORY);
-    const auto &first = state->history[oldest];
-    if (target_time < first.audio_time_ms) return {};
-
-    lv_flow_v3_slice_t previous = first;
-    for (uint16_t offset = 1; offset < state->history_count; ++offset) {
-        const auto &next = state->history[
-            (oldest + offset) % LV_FLOW_V3_HISTORY];
-        if (target_time <= next.audio_time_ms) {
-            const uint32_t interval = next.audio_time_ms -
-                                      previous.audio_time_ms;
-            const float amount = interval > 0
-                                     ? (target_time -
-                                        previous.audio_time_ms) /
-                                           interval
-                                     : 1.0f;
-            return blend(previous, next, amount);
-        }
-        previous = next;
-    }
-    return previous;
+                                   : (uint16_t)LV_FLOW_V3_DEFAULT_TRAVEL_MS;
+    return lv_flow_v3_history_sample(
+        state->history, state->history_head, state->history_count,
+        travel_ms, coordinate, now_ms);
 }
 
 lv_rgb_t lv_flow_v3_texture_color(lv_flow_v3_slice_t sample,

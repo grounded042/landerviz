@@ -3,6 +3,21 @@
 #include <algorithm>
 #include <cmath>
 
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+#include "dsp/transform_functions.h"
+#endif
+
+namespace {
+
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+q15_t hann_window[LV_FFT_N];
+arm_rfft_instance_q15 rfft;
+#else
+float hann_window[LV_FFT_N];
+#endif
+bool window_initialized = false;
+
+#if !defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
 static void fft_radix2(float *re, float *im, int n) {
     for (int i = 1, j = 0; i < n; ++i) {
         int bit = n >> 1;
@@ -18,10 +33,16 @@ static void fft_radix2(float *re, float *im, int n) {
         }
     }
 
-    for (int len = 2; len <= n; len <<= 1) {
-        const float angle = -2.0f * 3.14159265f / len;
-        const float step_re = std::cos(angle);
-        const float step_im = std::sin(angle);
+    static constexpr float step_re[] = {
+        -1.0f, 0.0f, 0.707106781f, 0.923879533f,
+        0.980785280f, 0.995184727f, 0.998795456f, 0.999698819f,
+    };
+    static constexpr float step_im[] = {
+        0.0f, -1.0f, -0.707106781f, -0.382683432f,
+        -0.195090322f, -0.098017140f, -0.049067674f, -0.024541229f,
+    };
+    int stage = 0;
+    for (int len = 2; len <= n; len <<= 1, ++stage) {
         for (int i = 0; i < n; i += len) {
             float twiddle_re = 1.0f;
             float twiddle_im = 0.0f;
@@ -34,11 +55,61 @@ static void fft_radix2(float *re, float *im, int n) {
                 re[i + k] += product_re;
                 im[i + k] += product_im;
 
-                const float next_re = twiddle_re * step_re - twiddle_im * step_im;
-                twiddle_im = twiddle_re * step_im + twiddle_im * step_re;
+                const float next_re = twiddle_re * step_re[stage] -
+                                      twiddle_im * step_im[stage];
+                twiddle_im = twiddle_re * step_im[stage] +
+                             twiddle_im * step_re[stage];
                 twiddle_re = next_re;
             }
         }
+    }
+}
+#endif
+
+}  // namespace
+
+void lv_audio_analysis_init() {
+    if (window_initialized) return;
+    for (int i = 0; i < LV_FFT_N; ++i) {
+        const float window =
+            0.5f - 0.5f * std::cos(2.0f * 3.14159265f * i / LV_FFT_N);
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+        hann_window[i] = (q15_t)std::lround(window * 32767.0f);
+#else
+        hann_window[i] = window;
+#endif
+    }
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+    (void)arm_rfft_init_256_q15(&rfft, 0, 1);
+#endif
+    window_initialized = true;
+}
+
+void lv_prepare_mono_analysis(
+    const uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N],
+    uint16_t mono[LV_FFT_N], float input_gain,
+    float rms_level[LV_AUDIO_CHANNEL_COUNT]) {
+    float mean[LV_AUDIO_CHANNEL_COUNT]{};
+    for (int sample = 0; sample < LV_FFT_N; ++sample) {
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            mean[channel] += stereo[channel][sample];
+        }
+        mono[sample] = (uint16_t)(
+            ((uint32_t)stereo[0][sample] + stereo[1][sample] + 1u) / 2u);
+    }
+    for (float &channel_mean : mean) channel_mean /= LV_FFT_N;
+
+    float sum_sq[LV_AUDIO_CHANNEL_COUNT]{};
+    for (int sample = 0; sample < LV_FFT_N; ++sample) {
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            const float value =
+                (((float)stereo[channel][sample] - mean[channel]) /
+                 LV_ADC_MID) * input_gain;
+            sum_sq[channel] += value * value;
+        }
+    }
+    for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+        rms_level[channel] = std::sqrt(sum_sq[channel] / LV_FFT_N);
     }
 }
 
@@ -151,22 +222,23 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
         19.61552f, 25.85646f, 33.35044f, 42.34901f, 53.15427f,
         66.12895f, 81.70862f, 100.41629f, 122.88f,
     };
-    // Analysis is called sequentially for left and right. Keep the FFT scratch
+    // Analysis is called sequentially for left and right. Keep FFT scratch
     // space out of the RP2040's small stack and reuse it between channels.
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+    static q15_t fft_input[LV_FFT_N];
+    // CMSIS-DSP emits the complete conjugate spectrum plus the Nyquist bin.
+    static q15_t fft_output[2 * LV_FFT_N + 2];
+#else
     static float re[LV_FFT_N];
     static float im[LV_FFT_N];
-    static float magnitude[LV_FFT_N / 2];
-    static float hann_window[LV_FFT_N];
-    static bool window_initialized = false;
-    if (!window_initialized) {
-        for (int i = 0; i < LV_FFT_N; ++i) {
-            hann_window[i] =
-                0.5f - 0.5f * std::cos(2.0f * 3.14159265f * i / LV_FFT_N);
-        }
-        window_initialized = true;
-    }
+#endif
+    static float magnitude_power[LV_FFT_N / 2];
+    lv_audio_analysis_init();
     float sum_sq = 0.0f;
     float frame_mean = 0.0f;
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+    float frame_peak = 0.0f;
+#endif
 
     if (analysis->bass_avg == 0.0f) analysis->bass_avg = 0.05f;
 
@@ -177,20 +249,58 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
         const float sample =
             (((float)samples[i] - frame_mean) / LV_ADC_MID) * input_gain;
         sum_sq += sample * sample;
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+        frame_peak = std::max(frame_peak, std::fabs(sample));
+#else
         re[i] = sample * hann_window[i];
         im[i] = 0.0f;
+#endif
     }
 
-    fft_radix2(re, im, LV_FFT_N);
-    for (int i = 0; i < LV_FFT_N / 2; ++i) {
-        magnitude[i] = std::sqrt(re[i] * re[i] + im[i] * im[i]) / (LV_FFT_N / 4);
+#if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
+    // Q15 represents -1.0..just under +1.0. Scale down only when a gained
+    // frame would overflow, then undo that scale in the spectrum below.
+    const float q15_scale = frame_peak > 0.999f ? 0.999f / frame_peak : 1.0f;
+    for (int i = 0; i < LV_FFT_N; ++i) {
+        const float sample =
+            (((float)samples[i] - frame_mean) / LV_ADC_MID) * input_gain;
+        const int32_t sample_q15 =
+            (int32_t)std::lround(sample * q15_scale * 32767.0f);
+        fft_input[i] = (q15_t)((sample_q15 * hann_window[i]) >> 15);
     }
+    arm_rfft_q15(&rfft, fft_input, fft_output);
+
+    // A 256-point CMSIS Q15 RFFT is downscaled by 8 bits internally. With
+    // the Hann window's 0.5 coherent gain, a full-scale bin-centered sine
+    // therefore produces a complex magnitude of 32768 / 4 = 8192.
+    const float magnitude_scale = 8192.0f * q15_scale;
+    const float magnitude_scale_squared = magnitude_scale * magnitude_scale;
+    for (int i = 0; i < LV_FFT_N / 2; ++i) {
+        const float real = (float)fft_output[2 * i];
+        const float imaginary = (float)fft_output[2 * i + 1];
+        magnitude_power[i] =
+            (real * real + imaginary * imaginary) /
+            magnitude_scale_squared;
+    }
+#else
+    fft_radix2(re, im, LV_FFT_N);
+    constexpr float magnitude_scale_squared =
+        (float)(LV_FFT_N / 4) * (float)(LV_FFT_N / 4);
+    for (int i = 0; i < LV_FFT_N / 2; ++i) {
+        magnitude_power[i] =
+            (re[i] * re[i] + im[i] * im[i]) /
+            magnitude_scale_squared;
+    }
+#endif
 
     for (int band = 0; band < LV_BAND_COUNT; ++band) {
-        float peak = 0.0f;
+        float peak_power = 0.0f;
         for (int bin = band_start[band]; bin <= band_end[band] && bin < LV_FFT_N / 2; ++bin) {
-            if (magnitude[bin] > peak) peak = magnitude[bin];
+            if (magnitude_power[bin] > peak_power) {
+                peak_power = magnitude_power[bin];
+            }
         }
+        const float peak = std::sqrt(peak_power);
         if (peak > analysis->band_level[band]) analysis->band_level[band] = peak;
         else analysis->band_level[band] +=
                  (peak - analysis->band_level[band]) * 0.4375f;
@@ -213,7 +323,7 @@ void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples
             } else if (position > center && position <= upper) {
                 weight = (upper - position) / (upper - center);
             }
-            weighted_power += magnitude[bin] * magnitude[bin] * weight;
+            weighted_power += magnitude_power[bin] * weight;
         }
         const float level = std::sqrt(weighted_power);
         if (level > analysis->mel_level[band]) {

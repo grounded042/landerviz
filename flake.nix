@@ -11,6 +11,10 @@
       url = "github:hathach/tinyusb/86ad6e56c1700e85f1c5678607a762cfe3aa2f47";
       flake = false;
     };
+    cmsis-dsp = {
+      url = "github:ARM-software/CMSIS-DSP/v1.17.1";
+      flake = false;
+    };
     zsa-qmk = {
       url = "github:zsa/qmk_firmware/93b2b9ec3368f86c5eb5a2e3f934049f8daef885";
       flake = false;
@@ -42,6 +46,7 @@
     nixpkgs,
     pico-pio-usb,
     tinyusb,
+    cmsis-dsp,
     zsa-qmk,
     qmk-modules,
     chibios,
@@ -53,6 +58,24 @@
     systems = ["aarch64-darwin" "aarch64-linux" "x86_64-linux"];
     forAllSystems = nixpkgs.lib.genAttrs systems;
     pkgsFor = system: import nixpkgs {inherit system;};
+    cmsisQ15Sources = nixpkgs.lib.concatStringsSep " " [
+      "${cmsis-dsp}/Source/CommonTables/arm_common_tables.c"
+      "${cmsis-dsp}/Source/CommonTables/arm_const_structs.c"
+      "${cmsis-dsp}/Source/BasicMathFunctions/arm_shift_q15.c"
+      "${cmsis-dsp}/Source/TransformFunctions/arm_bitreversal.c"
+      "${cmsis-dsp}/Source/TransformFunctions/arm_bitreversal2.c"
+      "${cmsis-dsp}/Source/TransformFunctions/arm_cfft_q15.c"
+      "${cmsis-dsp}/Source/TransformFunctions/arm_cfft_radix4_q15.c"
+      "${cmsis-dsp}/Source/TransformFunctions/arm_rfft_init_q15.c"
+      "${cmsis-dsp}/Source/TransformFunctions/arm_rfft_q15.c"
+    ];
+    cmsisQ15Objects = "arm_common_tables.o arm_const_structs.o arm_shift_q15.o arm_bitreversal.o arm_bitreversal2.o arm_cfft_q15.o arm_cfft_radix4_q15.o arm_rfft_init_q15.o arm_rfft_q15.o";
+    buildHostCmsisQ15 = ''
+      $CC -O2 -D__GNUC_PYTHON__ \
+        -I${cmsis-dsp}/Include -I${cmsis-dsp}/PrivateInclude \
+        -c ${cmsisQ15Sources}
+      ar rcs libcmsis_dsp_q15.a ${cmsisQ15Objects}
+    '';
   in {
     packages = forAllSystems (system: let
       pkgs = pkgsFor system;
@@ -71,6 +94,7 @@
         PICO_SDK_PATH = "${pkgs.pico-sdk}/lib/pico-sdk";
         PICO_PIO_USB_PATH = pico-pio-usb;
         PICO_TINYUSB_PATH = tinyusb;
+        CMSIS_DSP_PATH = cmsis-dsp;
         configurePhase = ''
           runHook preConfigure
           cmake -S . -B build -G Ninja \
@@ -135,9 +159,10 @@
         dontConfigure = true;
         buildPhase = ''
           runHook preBuild
-          $CXX -std=c++17 -O2 -Wall -Wextra -Werror -DLANDERVIZ_PREVIEW_FLOW_V2 -DLANDERVIZ_PREVIEW_FLOW_V3 -Iinclude \
-            tools/preview.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_combined.cpp src/flow_v3_energy.cpp src/flow_v3_attack.cpp src/flow_v3_texture.cpp src/visualizer.cpp \
-            $(pkg-config --cflags --libs sdl2) -o landerviz-preview
+          ${buildHostCmsisQ15}
+          $CXX -std=c++17 -O2 -Wall -Wextra -Werror -DLANDERVIZ_PREVIEW_FLOW_V2 -DLANDERVIZ_PREVIEW_FLOW_V3 -DLANDERVIZ_USE_CMSIS_DSP_Q15 -Iinclude -I${cmsis-dsp}/Include \
+            tools/preview.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_color.cpp src/flow_v3_combined.cpp src/flow_v3_energy.cpp src/flow_v3_attack.cpp src/flow_v3_texture.cpp src/visualizer.cpp \
+            libcmsis_dsp_q15.a $(pkg-config --cflags --libs sdl2) -o landerviz-preview
           runHook postBuild
         '';
         installPhase = ''
@@ -176,9 +201,10 @@
         src = self;
         dontConfigure = true;
         buildPhase = ''
-          $CXX -std=c++17 -Wall -Wextra -Werror -DLANDERVIZ_PREVIEW_FLOW_V2 -DLANDERVIZ_PREVIEW_FLOW_V3 -Iinclude \
-            tests/protocol_test.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_combined.cpp src/flow_v3_energy.cpp src/flow_v3_attack.cpp src/flow_v3_texture.cpp src/visualizer.cpp src/usb_status.cpp \
-            -o protocol_test
+          ${buildHostCmsisQ15}
+          $CXX -std=c++17 -Wall -Wextra -Werror -DLANDERVIZ_PREVIEW_FLOW_V2 -DLANDERVIZ_PREVIEW_FLOW_V3 -DLANDERVIZ_USE_CMSIS_DSP_Q15 -Iinclude -I${cmsis-dsp}/Include \
+            tests/protocol_test.cpp src/audio_analysis.cpp src/effects.cpp src/flow_v2.cpp src/flow_v3.cpp src/flow_v3_mid.cpp src/flow_v3_color.cpp src/flow_v3_combined.cpp src/flow_v3_energy.cpp src/flow_v3_attack.cpp src/flow_v3_texture.cpp src/flow_v3_engine.cpp src/visualizer.cpp src/usb_status.cpp \
+            libcmsis_dsp_q15.a -o protocol_test
           ./protocol_test
         '';
         installPhase = ''
@@ -210,6 +236,7 @@
         PICO_SDK_PATH = "${pkgs.pico-sdk}/lib/pico-sdk";
         PICO_PIO_USB_PATH = pico-pio-usb;
         PICO_TINYUSB_PATH = tinyusb;
+        CMSIS_DSP_PATH = cmsis-dsp;
       };
     });
   };

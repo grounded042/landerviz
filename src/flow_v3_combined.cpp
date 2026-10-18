@@ -9,11 +9,24 @@
 
 namespace {
 
-constexpr float bass_lab_hue = 195.0f;
-constexpr float bass_distance_fade = 0.975f;
 constexpr float energy_floor_body_cap = 0.22f;
 constexpr float attack_blur_tightening = 0.75f;
 constexpr float texture_hue_influence = 32.0f;
+
+float distance_fade(float coordinate) {
+    static constexpr float whole_decay[] = {
+        1.000000000f, 0.975000000f, 0.950625000f, 0.926859375f,
+        0.903687891f, 0.881095693f, 0.859068301f, 0.837591593f,
+    };
+    coordinate = std::max(0.0f, coordinate);
+    const int whole = std::clamp((int)coordinate, 0, 7);
+    const float fraction = coordinate - (float)whole;
+    const float fraction_decay =
+        1.0f - 0.025317808f * fraction +
+        0.000320496f * fraction * fraction -
+        0.000002705f * fraction * fraction * fraction;
+    return whole_decay[whole] * fraction_decay;
+}
 
 float nearest_hue(float hue, float reference) {
     while (hue - reference > 180.0f) hue -= 360.0f;
@@ -104,13 +117,12 @@ lv_rgb_t lv_flow_v3_combined_color(lv_flow_v3_slice_t sample,
                                    float coordinate) {
     const float body = std::clamp(sample.body, 0.0f, 1.0f);
     if (body <= 0.001f) return {};
-    const float distance_fade = std::pow(
-        bass_distance_fade, std::max(0.0f, coordinate));
-    const float value = (0.12f + 0.88f * body) * distance_fade;
-    const auto bass_reference = lv_hsv_to_rgb(
-        (uint8_t)std::lround(bass_lab_hue * 255.0f / 360.0f), 255,
-        (uint8_t)std::clamp(std::lround(value * 255.0f), 0l, 255l));
-    const float lightness = lv_flow_v3_color_lightness(bass_reference);
+    const float value = (0.12f + 0.88f * body) *
+                        distance_fade(coordinate);
+    const uint8_t reference_value = (uint8_t)std::clamp(
+        value * 255.0f + 0.5f, 0.0f, 255.0f);
+    const float lightness =
+        lv_flow_v3_bass_reference_lightness(reference_value);
     return lv_flow_v3_vivid_color(sample.hue, lightness);
 }
 
@@ -279,29 +291,41 @@ void lv_flow_v3_combined_energy_attack_texture_render(
     const lv_flow_v3_energy_t *energy,
     const lv_flow_v3_attack_t *attack,
     const lv_flow_v3_texture_t *texture, uint32_t now_ms,
-    lv_rgb_t frame[LV_KEY_COUNT]) {
+    lv_rgb_t frame[LV_KEY_COUNT], lv_flow_v3_service_fn service) {
     std::memset(frame, 0, sizeof(lv_rgb_t) * LV_KEY_COUNT);
+
+    // FLOW's features are phase-safe mono signals, so mirrored physical
+    // coordinates have identical colors. Evaluate each main-grid coordinate
+    // once, then map it to both keyboard halves.
+    lv_rgb_t main_color[LV_SPECTRAL_FLOW_COLUMNS][5]{};
+    for (int distance = 0; distance < LV_SPECTRAL_FLOW_COLUMNS;
+         ++distance) {
+        for (int phase_row = 0; phase_row < 5; ++phase_row) {
+            const float coordinate = lv_spectral_flow_coordinate(
+                0, (float)distance, (float)phase_row);
+            main_color[distance][phase_row] =
+                energy_attack_texture_color_at(
+                    bass, mids, energy, attack, texture,
+                    coordinate, now_ms);
+        }
+        if (service != nullptr) service();
+    }
+
     for (int half = 0; half < LV_AUDIO_CHANNEL_COUNT; ++half) {
         for (int col = 0; col < LV_SPECTRAL_FLOW_COLUMNS; ++col) {
             const int distance = half == 0
                                      ? LV_SPECTRAL_FLOW_COLUMNS - 1 - col
                                      : col;
             for (int row = 0; row < 5; ++row) {
-                const float coordinate = lv_spectral_flow_coordinate(
-                    half, (float)distance, (float)row);
+                const int phase_row = half == 0 ? row : 4 - row;
                 set_key(frame, lv_key_at(half, col, row),
-                        energy_attack_texture_color_at(
-                            bass, mids, energy, attack, texture,
-                            coordinate, now_ms));
+                        main_color[distance][phase_row]);
             }
         }
         for (int key = 0; key < 3; ++key) {
-            const float coordinate = lv_spectral_flow_coordinate(
-                half, 0.0f, (float)(key + 1));
+            const int phase_row = half == 0 ? key + 1 : 3 - key;
             set_key(frame, lv_utility_key_at(half, key),
-                    energy_attack_texture_color_at(
-                        bass, mids, energy, attack, texture,
-                        coordinate, now_ms));
+                    main_color[0][phase_row]);
         }
         constexpr float thumb_distance[4] = {1.25f, 0.85f, 0.45f, 0.0f};
         for (int key = 0; key < 4; ++key) {
@@ -312,5 +336,6 @@ void lv_flow_v3_combined_energy_attack_texture_render(
                         bass, mids, energy, attack, texture,
                         coordinate, now_ms));
         }
+        if (service != nullptr) service();
     }
 }

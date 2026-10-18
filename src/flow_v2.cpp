@@ -217,8 +217,8 @@ void onset_features(
         }
     }
 
-    std::copy(std::begin(current_log_level), std::end(current_log_level),
-              std::begin(state->previous_log_level));
+    std::copy_n(current_log_level, LV_MEL_BAND_COUNT,
+                state->previous_log_level);
     state->initialized = true;
     features->onset_low = strength[0];
     features->onset_mid = strength[1];

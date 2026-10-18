@@ -2,7 +2,7 @@
 // Target: SparkFun Pro Micro RP2040, Raspberry Pi Pico SDK, C++17
 //
 // Implements the audio visualization modes:
-//   - FLOW:     stereo spectral ribbons moving out from the center split
+//   - FLOW:     mono spectral ribbons moving out from the center split
 //   - SPECTRUM: column analyzer, mirrored across the split
 //   - PULSE:    kick-driven whole-board breath, slow hue rotation
 //   - VU:       smoothed stereo bottom-to-top meters
@@ -10,6 +10,7 @@
 // Plus: QC1602A LCD (spectrum or stereo VU, mode/fps status),
 //       tactile mode button (short = next, long = previous).
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -24,6 +25,7 @@
 #include "landerviz/audio_analysis.h"
 #include "landerviz/audio_buffer.h"
 #include "landerviz/effects.h"
+#include "landerviz/flow_v3_engine.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/usb_bridge.h"
 #include "landerviz/visualizer.h"
@@ -74,6 +76,16 @@ static RGB scale_rgb(RGB c, uint8_t k) {  // k 0..255
 
 static RGB frame[NUM_KEYS];
 static lv_visualizer_t visualizer = {};
+static lv_flow_v3_engine_t flow_v3 = {};
+
+struct runtime_metrics_t {
+    uint32_t max_analysis_us;
+    uint32_t max_spectrum_us;
+    uint32_t max_features_us;
+    uint32_t max_render_us;
+};
+
+static runtime_metrics_t runtime_metrics = {};
 
 static void board_show() {
     RGB capped[NUM_KEYS];
@@ -203,8 +215,9 @@ static void lcd_draw_spectrum_cell(uint8_t height) {
 // ---------------------------------------------------------------------------
 
 static volatile uint16_t adc_buf[2][LV_AUDIO_CHANNEL_COUNT][LV_FFT_N];
+static volatile uint32_t adc_completed_ms[2] = {};
 static volatile int      adc_idx  = 0;
-static volatile lv_audio_buffer_state_t adc_buffers = {0, -1};
+static volatile lv_audio_buffer_state_t adc_buffers = {0, -1, 0, 0};
 static volatile bool     clip_flag[LV_AUDIO_CHANNEL_COUNT] = {false, false};
 
 static bool adc_tick(struct repeating_timer*) {
@@ -217,7 +230,12 @@ static bool adc_tick(struct repeating_timer*) {
     }
     if (++adc_idx >= LV_FFT_N) {
         adc_idx = 0;
-        lv_audio_buffer_complete(&adc_buffers);
+        const uint8_t completed = adc_buffers.fill;
+        if (lv_audio_buffer_complete_decimated(
+                &adc_buffers, LV_ANALYSIS_DECIMATION)) {
+            adc_completed_ms[completed] =
+                to_ms_since_boot(get_absolute_time());
+        }
     }
     return true;
 }
@@ -226,20 +244,87 @@ static lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {};
 static lv_audio_activity_t audio_activity = {};
 static bool audio_present = false;
 
-static void analyze_frame(const uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N]) {
-    bool above_noise_gate = false;
-    for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
-        lv_analyze_channel(&audio[channel], samples[channel], AUDIO_INPUT_GAIN);
-        // RMS is converted to approximate peak amplitude before applying the
-        // meter's noise gate. Keyboard effects retain their more sensitive
-        // visualization curve once real audio is present.
-        above_noise_gate |=
-            lv_meter_level(audio[channel].rms_level * 1.41421356f) > 0.0f;
-    }
+static void reset_metrics_after_usb_settles(uint32_t now_ms) {
+    static uint32_t ready_since_ms = 0;
+    static bool reset_done = false;
+    if (reset_done) return;
 
+    constexpr uint8_t required =
+        LV_USB_HOST_STARTED | LV_USB_DEVICE_MOUNTED |
+        LV_USB_KEYBOARD_MOUNTED | LV_USB_RAW_MOUNTED |
+        LV_USB_DEVICE_ATTACHED | LV_USB_DEVICE_FULL_SPEED |
+        LV_USB_ATTACH_EVENT;
+    const uint8_t status = usb_bridge_host_status_history();
+    if ((status & required) != required || (status & LV_USB_HOST_ERROR) != 0) {
+        ready_since_ms = 0;
+        return;
+    }
+    if (ready_since_ms == 0) {
+        ready_since_ms = now_ms;
+        return;
+    }
+    if (now_ms - ready_since_ms < 1000) return;
+
+    runtime_metrics = {};
+    const uint32_t irq_state = save_and_disable_interrupts();
+    adc_buffers.dropped = 0;
+    restore_interrupts(irq_state);
+    usb_bridge_reset_metrics();
+    reset_done = true;
+}
+
+static void analyze_frame(
+    const uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N],
+    uint32_t audio_time_ms, bool mono_flow) {
+    const uint32_t spectrum_started_us = time_us_32();
+    bool above_noise_gate = false;
+    static lv_channel_analysis_t mono_analysis = {};
+    static uint16_t mono_samples[LV_FFT_N];
+    static bool prior_was_mono = false;
+
+    if (mono_flow) {
+        if (!prior_was_mono) mono_analysis = {};
+
+        float stereo_rms[LV_AUDIO_CHANNEL_COUNT] = {};
+        lv_prepare_mono_analysis(samples, mono_samples, AUDIO_INPUT_GAIN,
+                                 stereo_rms);
+        lv_analyze_channel(&mono_analysis, mono_samples, AUDIO_INPUT_GAIN);
+        usb_bridge_device_task();
+
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            audio[channel] = mono_analysis;
+            audio[channel].rms_level = stereo_rms[channel];
+            above_noise_gate |=
+                lv_meter_level(stereo_rms[channel] * 1.41421356f) > 0.0f;
+        }
+    } else {
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            lv_analyze_channel(&audio[channel], samples[channel],
+                               AUDIO_INPUT_GAIN);
+            // RMS is converted to approximate peak amplitude before applying
+            // the meter's noise gate. Keyboard effects retain their more
+            // sensitive visualization curve once real audio is present.
+            above_noise_gate |=
+                lv_meter_level(audio[channel].rms_level * 1.41421356f) > 0.0f;
+            if (channel + 1 < LV_AUDIO_CHANNEL_COUNT) {
+                usb_bridge_device_task();
+            }
+        }
+    }
+    prior_was_mono = mono_flow;
+    runtime_metrics.max_spectrum_us = std::max(
+        runtime_metrics.max_spectrum_us,
+        time_us_32() - spectrum_started_us);
+
+    const uint32_t features_started_us = time_us_32();
     const uint32_t now_ms = to_ms_since_boot(get_absolute_time());
     audio_present =
         lv_audio_activity_update(&audio_activity, above_noise_gate, now_ms);
+    lv_flow_v3_engine_update(&flow_v3, audio, above_noise_gate,
+                             audio_time_ms);
+    runtime_metrics.max_features_us = std::max(
+        runtime_metrics.max_features_us,
+        time_us_32() - features_started_us);
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +370,10 @@ static void poll_button() {
 // LCD status: row 0 stereo VU or mirrored stereo spectrum,
 // row 1 mode name + fps. Boot splash on power-up.
 // ---------------------------------------------------------------------------
+
+static uint32_t tenths_of_ms(uint32_t microseconds) {
+    return std::min<uint32_t>((microseconds + 50) / 100, 999);
+}
 
 static void lcd_status(uint32_t now_ms, int fps) {
     const bool show_spectrum =
@@ -362,6 +451,33 @@ static void lcd_status(uint32_t now_ms, int fps) {
         snprintf(line1, sizeof(line1), "USB: %-11s", usb_label);
     } else if ((int32_t)(mode_announce_until_ms - now_ms) > 0) {
         snprintf(line1, sizeof(line1), ">%-15s", lv_viz_mode_name(mode));
+    } else if (mode == lv_viz_mode_t::FLOW &&
+               (now_ms / 2000u) % 4u == 1u) {
+        const uint32_t missed_audio_windows = adc_buffers.dropped;
+        snprintf(line1, sizeof(line1), "A%03lu R%03lu M%03lu  ",
+                 (unsigned long)tenths_of_ms(
+                     runtime_metrics.max_analysis_us),
+                 (unsigned long)tenths_of_ms(
+                     runtime_metrics.max_render_us),
+                 (unsigned long)std::min<uint32_t>(missed_audio_windows,
+                                                   999));
+    } else if (mode == lv_viz_mode_t::FLOW &&
+               (now_ms / 2000u) % 4u == 2u) {
+        snprintf(line1, sizeof(line1), "F%03lu E%03lu       ",
+                 (unsigned long)tenths_of_ms(
+                     runtime_metrics.max_spectrum_us),
+                 (unsigned long)tenths_of_ms(
+                     runtime_metrics.max_features_us));
+    } else if (mode == lv_viz_mode_t::FLOW &&
+               (now_ms / 2000u) % 4u == 3u) {
+        const lv_usb_bridge_metrics_t usb = usb_bridge_metrics();
+        snprintf(line1, sizeof(line1), "D%03lu H%03lu K%03lu  ",
+                 (unsigned long)tenths_of_ms(
+                     usb.max_device_task_gap_us),
+                 (unsigned long)tenths_of_ms(
+                     usb.max_host_task_gap_us),
+                 (unsigned long)tenths_of_ms(
+                     usb.max_keyboard_forward_us));
     } else {
         const int display_fps = fps < 0 ? 0 : (fps > 999 ? 999 : fps);
         memset(line1, ' ', 16);
@@ -384,7 +500,9 @@ static void lcd_status(uint32_t now_ms, int fps) {
 // ---------------------------------------------------------------------------
 
 int main() {
+    lv_audio_analysis_init();
     usb_bridge_init();
+    lv_flow_v3_engine_init(&flow_v3);
 
     // LCD
     lcd_init();
@@ -413,24 +531,34 @@ int main() {
     uint32_t last_completed_frames = usb_bridge_completed_frame_count();
     int fps = 0;
     uint16_t samples[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N];
-    uint32_t captured_audio_windows = 0;
 
     while (true) {
         usb_bridge_device_task();
         uint32_t now = to_ms_since_boot(get_absolute_time());
+        reset_metrics_after_usb_settles(now);
         poll_button();
 
         if (adc_buffers.ready >= 0) {
             const uint32_t irq_state = save_and_disable_interrupts();
             const int completed = lv_audio_buffer_take(&adc_buffers);
-            const bool analyze_window =
-                completed >= 0 &&
-                captured_audio_windows++ % LV_ANALYSIS_DECIMATION == 0;
-            if (analyze_window) {
+            const uint32_t completed_ms = completed >= 0
+                                              ? adc_completed_ms[completed]
+                                              : 0;
+            if (completed >= 0) {
                 memcpy(samples, (const void *)adc_buf[completed], sizeof(samples));
             }
             restore_interrupts(irq_state);
-            if (analyze_window) analyze_frame(samples);
+            if (completed >= 0) {
+                constexpr uint32_t kAudioHalfWindowMs =
+                    LV_FFT_N * 1000u / SAMPLE_HZ / 2u;
+                const uint32_t analysis_started_us = time_us_32();
+                analyze_frame(samples, completed_ms - kAudioHalfWindowMs,
+                              mode == lv_viz_mode_t::FLOW);
+                runtime_metrics.max_analysis_us = std::max(
+                    runtime_metrics.max_analysis_us,
+                    time_us_32() - analysis_started_us);
+                usb_bridge_device_task();
+            }
         }
 
         const uint32_t render_us = time_us_32();
@@ -441,9 +569,18 @@ int main() {
                 // LCD or USB stall; resume from the current wall-clock frame.
                 last_render_us = render_us;
             }
-            lv_visualizer_render(&visualizer, mode, audio, audio_present, now,
-                                 frame);
+            const uint32_t render_started_us = time_us_32();
+            if (mode == lv_viz_mode_t::FLOW && audio_present) {
+                lv_flow_v3_engine_render(
+                    &flow_v3, now, frame, usb_bridge_device_task);
+            } else {
+                lv_visualizer_render(&visualizer, mode, audio,
+                                     audio_present, now, frame);
+            }
             board_show();
+            runtime_metrics.max_render_us = std::max(
+                runtime_metrics.max_render_us,
+                time_us_32() - render_started_us);
         }
 
         if (now - last_fps_ms >= 1000) {

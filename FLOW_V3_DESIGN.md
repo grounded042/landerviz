@@ -1,7 +1,9 @@
 # FLOW v3 design contract
 
-FLOW v3 is a preview-only experiment. It does not replace FLOW v2 or enter the
-RP2040 firmware until its behavior is accepted in the desktop preview.
+FLOW v3 was designed and accepted in the desktop preview before being ported
+to the RP2040 firmware. The firmware uses the same feature extractors and
+compositor; only its expensive color conversion is replaced by an interpolated
+flash-resident lookup table.
 
 Status: Bass Lab B was accepted as the frozen bass foundation on 2026-10-17.
 Lab A remains available as its comparison baseline. Mid Lab was accepted as
@@ -13,7 +15,9 @@ foundation on 2026-10-17, and its capped floor was accepted in Combined on
 were accepted on 2026-10-17. Texture Lab and its bounded hue integration were
 accepted on 2026-10-17.
 
-FLOW v3 remains preview-only until the complete behavior is accepted.
+The complete preview behavior is accepted. Firmware integration and profiling
+instrumentation are implemented; physical-keyboard timing and appearance
+validation remain before the v3 firmware replaces the last known-good build.
 
 ## Goal
 
@@ -268,13 +272,38 @@ separate effect.
 
 ## Boundaries
 
-- No firmware integration or flash in this phase.
+- Firmware receives only the accepted Combined behavior. Lab toggles and the
+  v1/v2 comparison engines remain development-preview tools.
+- Keep the accepted roughly 30.5 Hz analysis cadence until measurements on the
+  RP2040 justify a controlled 61 Hz experiment.
 - No new hardware requirements.
 - No dedicated bass row, half, or lane. A fixed color is permitted only in the
   isolated diagnostic and is not the final integrated palette.
 - No per-song normalization that makes every recording look the same.
 - No beat grid or tempo prediction in the first lab. Those are candidates only
   if continuous causal features cannot meet the timing criteria.
+
+## Firmware validation gate
+
+The port is not considered hardware-accepted until all of these pass on the
+breadboard prototype:
+
+1. Flash the RP2040 and recheck Blue, ID, Radioactive, When I'm Small, and
+   Frontier against the accepted preview behavior.
+2. Confirm 27–30 complete RGB frames per second while typing and while the LCD
+   is refreshing.
+3. Inspect the LCD profiling pages for analysis/render headroom, missed audio
+   windows, both USB service gaps, and keyboard-report latency.
+4. If and only if those measurements expose a problem, optimize the history
+   lookup or test the 61 Hz analysis cadence as isolated changes.
+5. After hardware acceptance, remove or clearly archive obsolete v1-specific
+   firmware documentation and decide whether the preview-only comparison
+   engines remain worth carrying.
+
+Optional later experiments are deliberately outside this gate: a stronger
+slow phrase-level palette context, richer two-dimensional geometry,
+tempo/beat-phase estimation, and hardware-calibrated gamma or dithering. None
+is required to ship the accepted cohesive ribbon.
 
 ## Prior art and provenance
 

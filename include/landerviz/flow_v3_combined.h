@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef LANDERVIZ_PREVIEW_FLOW_V3
-#error "FLOW v3 is preview-only until its behavior is accepted"
-#endif
-
 #include <stdint.h>
 
 #include "landerviz/flow_v3.h"
@@ -12,6 +8,8 @@
 #include "landerviz/flow_v3_mid.h"
 #include "landerviz/flow_v3_texture.h"
 #include "landerviz/protocol.h"
+
+typedef void (*lv_flow_v3_service_fn)();
 
 // Compose the accepted Bass B body and Mid Lab hue at one ribbon coordinate.
 // This is stateless: both inputs retain their independent, frozen histories.
@@ -75,4 +73,5 @@ void lv_flow_v3_combined_energy_attack_texture_render(
     const lv_flow_v3_energy_t *energy,
     const lv_flow_v3_attack_t *attack,
     const lv_flow_v3_texture_t *texture, uint32_t now_ms,
-    lv_rgb_t frame[LV_KEY_COUNT]);
+    lv_rgb_t frame[LV_KEY_COUNT],
+    lv_flow_v3_service_fn service = nullptr);

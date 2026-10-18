@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef LANDERVIZ_PREVIEW_FLOW_V3
-#error "FLOW v3 is preview-only until its behavior is accepted"
-#endif
-
 #include <stdint.h>
 
 #include "landerviz/audio_analysis.h"

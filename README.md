@@ -31,8 +31,10 @@ Moonlander -- downstream USB --> Pro Micro RP2040 -- upstream USB --> hub --> Ma
   sends each RGB frame as eight 32-byte packets. The Moonlander publishes only
   complete frames, so a dropped packet cannot make a torn frame.
 - **ADC** (analog-to-digital converter) samples biased left and right audio on
-  GPIO26 and GPIO27. The RP2040 runs a 256-point **FFT** (fast Fourier
-  transform) for each channel to split it into frequency bands.
+  GPIO26 and GPIO27. The RP2040 uses ARM CMSIS-DSP's 256-point Q15 **FFT**
+  (fast Fourier transform) to split audio into frequency bands. FLOW averages
+  left and right before one FFT; SPECTRUM retains one FFT per channel. Q15 is a
+  signed fixed-point number format with 15 fractional bits.
 
 The custom firmware deliberately removes ZSA's Oryx Raw HID module. Normal
 typing, layers, macros, mouse keys, media keys, and N-key rollover remain; the
@@ -45,7 +47,8 @@ your Oryx layout. Both firmwares cap LED brightness at 175/255.
 ## Reproducible Nix builds
 
 The flake pins the Raspberry Pi Pico software development kit, TinyUSB,
-Pico-PIO-USB, ZSA QMK Firmware 25, and QMK's required submodules.
+Pico-PIO-USB, ARM CMSIS-DSP, ZSA QMK Firmware 25, and QMK's required
+submodules.
 The generated Oryx keymap source is vendored as reviewable text under
 `moonlander/oryx`; its source and refresh procedure are documented in
 `moonlander/README.md`.
@@ -69,10 +72,11 @@ build board name is `sparkfun_promicro`; the flake already supplies it.
 
 ### Mac visualization preview
 
-The development-only preview uses the same C++ audio analyzer and Moonlander
-LED mapping as the RP2040 firmware. It currently defaults to the preview-only
-FLOW v3 design lab; press `T` to cycle through v1, the frozen v2 baseline, and
-v3 at the same playback position. The committed v1 engine remains in firmware.
+The development-only preview uses the same C++ audio analyzer, FLOW v3
+components, and Moonlander LED mapping as the RP2040 firmware. It defaults to
+the accepted FLOW v3 compositor; press `T` to cycle through v1, the frozen v2
+baseline, and v3 at the same playback position. The comparison engines and
+isolated labs remain preview-only.
 See [FLOW v3 design contract](FLOW_V3_DESIGN.md) for the model and acceptance
 criteria. FFmpeg decodes MP3, M4A, WAV, FLAC, and other common audio files;
 SDL2 provides playback and draws all 72 simulated keys. Neither dependency is
@@ -324,16 +328,17 @@ shared motion, smoothing, sampling, and validation rules used by every mode.
 
 The five selectable modes are:
 
-- `FLOW` (default): 12 overlapping mel-scale bands from 60 Hz to 7.5 kHz
-  capture the current perceptual spectrum. Its weighted center, biased toward
-  the strongest band, creates a fully saturated hue/brightness packet on every
-  analysis frame. Mel-band and loudness peak followers keep quieter musical
-  detail visible without flattening every packet to the same brightness. A
-  timestamped packet history moves outward at roughly 110 ms per column.
-  Fractional physical coordinates stagger every row, and a five-sample spatial
-  filter spreads each transition across neighboring keys. Hue-space
-  interpolation avoids pastel RGB blends, and the ribbon has no unrelated
-  periodic brightness animation;
+- `FLOW` (default): the accepted v3 compositor turns each analyzed audio frame
+  into one timestamped music slice. FLOW averages the stereo waveform to mono
+  before analysis so its single cohesive ribbon has more CPU time; independent
+  left/right RMS loudness is still retained for metering and silence detection.
+  Bass supplies a continuous body, midrange content selects its vivid hue,
+  whole-spectrum energy supplies a capped visibility floor, positive spectral
+  change sharpens its existing leading edge, and sustained high-frequency
+  content adds a bounded hue shift. These properties travel together as one
+  ribbon rather than independent rows or flashes. Adjacent slices and
+  fractional physical key coordinates are interpolated as the ribbon moves
+  outward at roughly 110 ms per column;
 - `SPECTRUM`: left audio drives the left keyboard half and right audio drives
   the right half; each half has bass at the outside and treble at the center,
   utility keys mirror the adjacent treble column, and thumbs pulse with bass;
@@ -346,11 +351,38 @@ The five selectable modes are:
 
 The RP2040 targets 30 complete keyboard frames and 10 LCD refreshes per second.
 It retains 256 audio samples per FFT for frequency resolution, but analyzes
-every other captured window—about 30.5 stereo analyses per second—to leave the
-USB and LED renderer more CPU time.
+every other captured window—about 30.5 analysis frames per second—to leave the
+USB and LED renderer more CPU time. Decimation happens when capture windows
+complete, so intentionally skipped windows never occupy the consumer buffer or
+inflate the missed-window counter. FLOW services upstream USB after its mono
+FFT; stereo modes also service it between channels. The FLOW renderer services
+USB between small coordinate batches. These yields do not change the analyzed
+values or rendered key colors. Time-domain mono can cancel rare material whose
+left and right channels have opposite phase; that is an accepted trade-off for
+the measured CPU headroom.
 The Moonlander's LED-driver flush interval is 26 ms (a ceiling of about 38
 frames per second), so 30 Hz leaves timing margin while exceeding the roughly
 27 Hz motion target.
+
+FLOW's vivid OKLCH colors (a perceptual lightness/chroma/hue color model) use a
+generated, interpolated **LUT** (lookup table) stored in flash. This preserves
+the preview palette without running trigonometry and gamut searches for every
+key on the RP2040. Regenerate it with:
+
+```sh
+python3 tools/generate_flow_v3_color_lut.py src/flow_v3_color_lut.inc
+```
+
+While FLOW is selected, LCD row 1 rotates every two seconds among the normal
+mode/frame-rate page and three steady-state maximum profiling pages. The
+counters reset once, one second after USB enumeration completes, so startup
+does not permanently contaminate them. Times are shown in tenths of a
+millisecond and cap at `999`: `A` is total audio analysis time, `F` is its
+FFT/band-analysis portion, `E` is v3 feature extraction, `R` is render/submit
+time, `M` is genuinely missed due analysis windows, `D` is the upstream USB
+device-service gap, `H` is the downstream USB host-service gap, and `K` is
+keyboard-report forwarding latency. These counters exist to validate the
+firmware on the real RP2040; desktop preview timing is not a substitute.
 
 ## Safe bring-up order
 

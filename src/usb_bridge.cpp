@@ -29,6 +29,8 @@ struct UpstreamReport {
     uint8_t id;
     uint8_t length;
     uint8_t data[kUpstreamReportSize];
+    uint32_t queued_us;
+    bool measure_latency;
 };
 
 critical_section_t state_lock;
@@ -39,6 +41,12 @@ uint32_t sending_generation = 0;
 uint8_t sending_frame_id = 0;
 uint8_t sending_chunk = LV_CHUNK_COUNT;
 volatile uint32_t completed_frame_count = 0;
+volatile uint32_t max_host_task_gap_us = 0;
+volatile uint32_t max_device_task_gap_us = 0;
+volatile uint32_t max_keyboard_forward_us = 0;
+volatile uint32_t dropped_upstream_reports = 0;
+uint32_t last_host_task_us = 0;
+uint32_t last_device_task_us = 0;
 
 volatile uint8_t raw_device = 0;
 volatile uint8_t raw_instance = 0;
@@ -62,7 +70,17 @@ void record_host_status(uint8_t flags) {
     host_status_history |= flags;
 }
 
-bool queue_upstream_report(uint8_t id, const uint8_t *data, uint16_t length) {
+void record_task_gap(uint32_t now_us, uint32_t *last_us,
+                     volatile uint32_t *maximum_us) {
+    if (*last_us != 0) {
+        const uint32_t gap = now_us - *last_us;
+        if (gap > *maximum_us) *maximum_us = gap;
+    }
+    *last_us = now_us;
+}
+
+bool queue_upstream_report(uint8_t id, const uint8_t *data, uint16_t length,
+                           bool measure_keyboard_latency) {
     if (length > kUpstreamReportSize) return false;
 
     bool queued = false;
@@ -73,8 +91,12 @@ bool queue_upstream_report(uint8_t id, const uint8_t *data, uint16_t length) {
         slot.id = id;
         slot.length = static_cast<uint8_t>(length);
         std::memcpy(slot.data, data, length);
+        slot.queued_us = time_us_32();
+        slot.measure_latency = measure_keyboard_latency;
         upstream_write = next;
         queued = true;
+    } else {
+        ++dropped_upstream_reports;
     }
     critical_section_exit(&state_lock);
     return queued;
@@ -92,11 +114,13 @@ void queue_upstream_releases() {
     upstream_write = 0;
     critical_section_exit(&state_lock);
 
-    queue_upstream_report(kKeyboardReportId, released, sizeof(hid_keyboard_report_t));
-    queue_upstream_report(kMouseReportId, released, sizeof(hid_mouse_report_t));
-    queue_upstream_report(kSystemReportId, released, 2);
-    queue_upstream_report(kConsumerReportId, released, 2);
-    queue_upstream_report(kNkroReportId, released, kNkroPayloadSize);
+    queue_upstream_report(kKeyboardReportId, released,
+                          sizeof(hid_keyboard_report_t), false);
+    queue_upstream_report(kMouseReportId, released,
+                          sizeof(hid_mouse_report_t), false);
+    queue_upstream_report(kSystemReportId, released, 2, false);
+    queue_upstream_report(kConsumerReportId, released, 2, false);
+    queue_upstream_report(kNkroReportId, released, kNkroPayloadSize, false);
 }
 
 bool is_qmk_raw_hid(const uint8_t *descriptor, uint16_t length) {
@@ -173,6 +197,8 @@ void host_core() {
     host_status = LV_USB_HOST_STARTED;
     host_status_history = LV_USB_HOST_STARTED;
     while (true) {
+        record_task_gap(time_us_32(), &last_host_task_us,
+                        &max_host_task_gap_us);
         record_root_port_attach();
         tuh_task();
         record_root_port_attach();
@@ -191,6 +217,8 @@ void usb_bridge_init() {
 }
 
 void usb_bridge_device_task() {
+    record_task_gap(time_us_32(), &last_device_task_us,
+                    &max_device_task_gap_us);
     tud_task();
 
     UpstreamReport report{};
@@ -209,6 +237,12 @@ void usb_bridge_device_task() {
     }
     if (!tud_hid_ready()) return;
     if (tud_hid_report(report.id, report.data, report.length)) {
+        if (report.measure_latency) {
+            const uint32_t latency = time_us_32() - report.queued_us;
+            if (latency > max_keyboard_forward_us) {
+                max_keyboard_forward_us = latency;
+            }
+        }
         critical_section_enter_blocking(&state_lock);
         upstream_read = (upstream_read + 1) % kUpstreamQueueSize;
         critical_section_exit(&state_lock);
@@ -232,6 +266,22 @@ uint8_t usb_bridge_host_status() {
 
 uint8_t usb_bridge_host_status_history() {
     return host_status_history;
+}
+
+lv_usb_bridge_metrics_t usb_bridge_metrics() {
+    return {
+        max_host_task_gap_us,
+        max_device_task_gap_us,
+        max_keyboard_forward_us,
+        dropped_upstream_reports,
+    };
+}
+
+void usb_bridge_reset_metrics() {
+    max_host_task_gap_us = 0;
+    max_device_task_gap_us = 0;
+    max_keyboard_forward_us = 0;
+    dropped_upstream_reports = 0;
 }
 
 extern "C" void tuh_event_hook_cb(uint8_t rhport, uint32_t eventid, bool) {
@@ -292,16 +342,18 @@ extern "C" void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance,
     if (!(dev_addr == raw_device && instance == raw_instance)) {
         const uint8_t protocol = tuh_hid_interface_protocol(dev_addr, instance);
         if (protocol == HID_ITF_PROTOCOL_KEYBOARD && len == sizeof(hid_keyboard_report_t)) {
-            queue_upstream_report(kKeyboardReportId, report, len);
+            queue_upstream_report(kKeyboardReportId, report, len, true);
         } else if (protocol == HID_ITF_PROTOCOL_MOUSE && len == sizeof(hid_mouse_report_t)) {
-            queue_upstream_report(kMouseReportId, report, len);
+            queue_upstream_report(kMouseReportId, report, len, false);
         } else if (len >= 2) {
             // QMK composite reports include their report ID as byte zero.
             const uint8_t report_id = report[0];
             if (report_id == kNkroReportId && len == 32) {
-                queue_upstream_report(report_id, report + 1, (uint16_t)(len - 1));
+                queue_upstream_report(report_id, report + 1,
+                                      (uint16_t)(len - 1), true);
             } else if (report_id == kConsumerReportId || report_id == kSystemReportId) {
-                queue_upstream_report(report_id, report + 1, (uint16_t)(len - 1));
+                queue_upstream_report(report_id, report + 1,
+                                      (uint16_t)(len - 1), false);
             }
         }
     }

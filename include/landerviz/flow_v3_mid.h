@@ -1,12 +1,9 @@
 #pragma once
 
-#ifndef LANDERVIZ_PREVIEW_FLOW_V3
-#error "FLOW v3 is preview-only until its behavior is accepted"
-#endif
-
 #include <stdint.h>
 
 #include "landerviz/audio_analysis.h"
+#include "landerviz/flow_v3_color.h"
 #include "landerviz/flow_v3.h"
 #include "landerviz/protocol.h"
 
@@ -52,12 +49,3 @@ lv_flow_v3_slice_t lv_flow_v3_mid_sample(
 
 void lv_flow_v3_mid_render(const lv_flow_v3_mid_t *state, uint32_t now_ms,
                            lv_rgb_t frame[LV_KEY_COUNT]);
-
-// Convert an OKLCH hue and perceptual lightness to the most vivid in-gamut
-// sRGB color. OKLCH is Oklab lightness, chroma, and hue; sRGB is the standard
-// red/green/blue color space used by the preview and keyboard protocol.
-lv_rgb_t lv_flow_v3_vivid_color(float hue_degrees, float lightness);
-
-// Recover Oklab perceptual lightness from an 8-bit sRGB color for regression
-// tests and palette diagnostics.
-float lv_flow_v3_color_lightness(lv_rgb_t color);

@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef LANDERVIZ_PREVIEW_FLOW_V3
-#error "FLOW v3 is preview-only until its behavior is accepted"
-#endif
-
 #include <stdint.h>
 
 #include "landerviz/audio_analysis.h"
@@ -66,6 +62,14 @@ void lv_flow_v3_set_travel_ms(lv_flow_v3_t *state, uint16_t travel_ms);
 // Enable Bass Lab B's bounded slow-bed subtraction. Lab A is the default and
 // remains bit-for-bit unchanged when this is false.
 void lv_flow_v3_set_bass_contrast(lv_flow_v3_t *state, bool enabled);
+
+// Sample any timestamped FLOW v3 history by searching backward from the
+// newest slice. Firmware normally asks for the latest few hundred
+// milliseconds, so this avoids walking through old off-screen history.
+lv_flow_v3_slice_t lv_flow_v3_history_sample(
+    const lv_flow_v3_slice_t history[LV_FLOW_V3_HISTORY],
+    uint16_t history_head, uint16_t history_count, uint16_t travel_ms,
+    float coordinate, uint32_t now_ms);
 
 // Sample the continuous ribbon at an outward keyboard coordinate. Adjacent
 // audio slices are interpolated rather than selected as discrete key states.

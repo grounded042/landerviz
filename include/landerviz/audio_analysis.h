@@ -36,6 +36,17 @@ typedef struct {
     uint32_t last_confirmed_ms;
 } lv_audio_activity_t;
 
+// Precompute the fixed Hann window before USB and timer service begins.
+void lv_audio_analysis_init();
+
+// Average a captured stereo window into one mono window while retaining each
+// channel's independent RMS loudness. This is the deliberate time-domain mono
+// input used by FLOW before its single FFT.
+void lv_prepare_mono_analysis(
+    const uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N],
+    uint16_t mono[LV_FFT_N], float input_gain,
+    float rms_level[LV_AUDIO_CHANNEL_COUNT]);
+
 void lv_analyze_channel(lv_channel_analysis_t *analysis, const uint16_t *samples,
                         float input_gain);
 
