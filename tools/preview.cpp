@@ -524,6 +524,7 @@ bool write_offline_trace(const std::vector<float> &audio,
     if (!trace) return false;
 
     lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT]{};
+    lv_audio_normalizer_t normalizer{};
     lv_flow_v2_t flow_v2{};
     lv_flow_v3_t flow_v3_a{};
     lv_flow_v3_t flow_v3_b{};
@@ -548,15 +549,21 @@ bool write_offline_trace(const std::vector<float> &audio,
         analyzed_frames += LV_FFT_N;
         if (window_index % LV_ANALYSIS_DECIMATION != 0) continue;
 
-        bool above_gate = false;
-        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
-            lv_analyze_channel(&analysis[channel], samples[channel], 8.0f);
-            above_gate |=
-                lv_meter_level(analysis[channel].rms_level * 1.41421356f) >
-                0.0f;
-        }
         const uint32_t audio_midpoint_ms = (uint32_t)(
             (analyzed_frames - LV_FFT_N / 2) * 1000 / kSampleRate);
+        uint16_t mono_samples[LV_FFT_N]{};
+        float stereo_rms[LV_AUDIO_CHANNEL_COUNT]{};
+        float stereo_peak[LV_AUDIO_CHANNEL_COUNT]{};
+        lv_prepare_mono_analysis(samples, mono_samples, 8.0f,
+                                 stereo_rms, stereo_peak);
+        const float adaptive_gain = lv_audio_normalizer_update(
+            &normalizer, std::max(stereo_rms[0], stereo_rms[1]),
+            false, audio_midpoint_ms);
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            lv_analyze_channel(&analysis[channel], samples[channel],
+                               8.0f * adaptive_gain);
+        }
+        const bool above_gate = normalizer.gate_open;
         lv_flow_v2_update(&flow_v2, analysis, above_gate,
                           audio_midpoint_ms);
         lv_flow_v3_update(&flow_v3_a, analysis, above_gate,
@@ -592,7 +599,9 @@ bool write_offline_trace(const std::vector<float> &audio,
 
 void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
                     lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT],
-                    lv_audio_activity_t *activity, lv_visualizer_t *visualizer,
+                    lv_audio_activity_t *activity,
+                    lv_audio_normalizer_t *normalizer,
+                    lv_visualizer_t *visualizer,
                     lv_flow_v2_t *flow_v2, lv_flow_v3_t *flow_v3_a,
                     lv_flow_v3_t *flow_v3_b,
                     lv_flow_v3_mid_t *flow_v3_mid,
@@ -617,6 +626,7 @@ void reset_playback(SDL_AudioDeviceID device, const std::vector<float> &audio,
     std::memset(analysis, 0,
                 sizeof(lv_channel_analysis_t) * LV_AUDIO_CHANNEL_COUNT);
     *activity = {};
+    *normalizer = {};
     *visualizer = {};
     *flow_v2 = {};
     *flow_v3_a = {};
@@ -733,6 +743,7 @@ int main(int argc, char **argv) {
 
     lv_channel_analysis_t analysis[LV_AUDIO_CHANNEL_COUNT]{};
     lv_audio_activity_t activity{};
+    lv_audio_normalizer_t normalizer{};
     lv_visualizer_t visualizer{};
     lv_flow_v2_t flow_v2{};
     lv_flow_v3_t flow_v3_a{};
@@ -760,10 +771,10 @@ int main(int argc, char **argv) {
                                      (uint16_t)options.flow_travel_ms);
     lv_rgb_t frame[LV_KEY_COUNT]{};
     size_t analyzed_frames = 0;
-    reset_playback(device, audio, analysis, &activity, &visualizer, &flow_v2,
-                   &flow_v3_a, &flow_v3_b, &flow_v3_mid, &flow_v3_energy,
-                   &flow_v3_attack, &flow_v3_texture, &analyzed_frames,
-                   options.kick_demo);
+    reset_playback(device, audio, analysis, &activity, &normalizer,
+                   &visualizer, &flow_v2, &flow_v3_a, &flow_v3_b,
+                   &flow_v3_mid, &flow_v3_energy, &flow_v3_attack,
+                   &flow_v3_texture, &analyzed_frames, options.kick_demo);
     SDL_PauseAudioDevice(device, 0);
 
     lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
@@ -813,7 +824,7 @@ int main(int argc, char **argv) {
                     break;
                 case SDLK_r:
                     reset_playback(device, audio, analysis, &activity,
-                                   &visualizer, &flow_v2, &flow_v3_a,
+                                   &normalizer, &visualizer, &flow_v2, &flow_v3_a,
                                    &flow_v3_b, &flow_v3_mid, &flow_v3_energy,
                                    &flow_v3_attack, &flow_v3_texture,
                                    &analyzed_frames, options.kick_demo);
@@ -958,8 +969,8 @@ int main(int argc, char **argv) {
 
         if ((options.demo || options.kick_demo) && !paused &&
             played_frames >= total_audio_frames && analyzed_frames > 0) {
-            reset_playback(device, audio, analysis, &activity, &visualizer,
-                           &flow_v2, &flow_v3_a, &flow_v3_b, &flow_v3_mid,
+            reset_playback(device, audio, analysis, &activity, &normalizer,
+                           &visualizer, &flow_v2, &flow_v3_a, &flow_v3_b, &flow_v3_mid,
                            &flow_v3_energy, &flow_v3_attack,
                            &flow_v3_texture, &analyzed_frames,
                            options.kick_demo);
@@ -984,20 +995,25 @@ int main(int argc, char **argv) {
             const size_t window_index = analyzed_frames / LV_FFT_N;
             analyzed_frames += LV_FFT_N;
             if (window_index % LV_ANALYSIS_DECIMATION == 0) {
-                bool above_gate = false;
+                const uint32_t audio_midpoint_ms = (uint32_t)(
+                    (analyzed_frames - LV_FFT_N / 2) * 1000 / kSampleRate);
+                uint16_t mono_samples[LV_FFT_N]{};
+                float stereo_rms[LV_AUDIO_CHANNEL_COUNT]{};
+                float stereo_peak[LV_AUDIO_CHANNEL_COUNT]{};
+                lv_prepare_mono_analysis(samples, mono_samples, 8.0f,
+                                         stereo_rms, stereo_peak);
+                const float adaptive_gain = lv_audio_normalizer_update(
+                    &normalizer, std::max(stereo_rms[0], stereo_rms[1]),
+                    false, audio_midpoint_ms);
                 for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT;
                      ++channel) {
                     lv_analyze_channel(&analysis[channel], samples[channel],
-                                       8.0f);
-                    above_gate |=
-                        lv_meter_level(analysis[channel].rms_level *
-                                       1.41421356f) > 0.0f;
+                                       8.0f * adaptive_gain);
                 }
+                const bool above_gate = normalizer.gate_open;
                 const uint32_t audio_ms =
                     (uint32_t)(analyzed_frames * 1000 / kSampleRate);
                 lv_audio_activity_update(&activity, above_gate, audio_ms);
-                const uint32_t audio_midpoint_ms = (uint32_t)(
-                    (analyzed_frames - LV_FFT_N / 2) * 1000 / kSampleRate);
                 lv_flow_v2_update(&flow_v2, analysis, above_gate,
                                   audio_midpoint_ms);
                 lv_flow_v3_update(&flow_v3_a, analysis, above_gate,

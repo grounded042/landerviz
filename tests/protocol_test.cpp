@@ -193,21 +193,25 @@ static void test_mono_mix_preserves_centered_audio_and_stereo_levels() {
     uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N]{};
     uint16_t mono[LV_FFT_N]{};
     float rms[LV_AUDIO_CHANNEL_COUNT]{};
+    float peak[LV_AUDIO_CHANNEL_COUNT]{1.0f, 1.0f};
     const auto tone = audio_tone(4, 0.4f);
     std::copy(tone.begin(), tone.end(), stereo[0]);
     std::copy(tone.begin(), tone.end(), stereo[1]);
 
-    lv_prepare_mono_analysis(stereo, mono, 1.0f, rms);
+    lv_prepare_mono_analysis(stereo, mono, 1.0f, rms, peak);
 
     assert(std::equal(tone.begin(), tone.end(), mono));
     assert(std::fabs(rms[0] - rms[1]) < 0.000001f);
     assert(rms[0] > 0.28f && rms[0] < 0.29f);
+    assert(peak[0] > 0.399f && peak[0] < 0.401f);
+    assert(peak[1] > 0.399f && peak[1] < 0.401f);
 }
 
 static void test_mono_mix_accepts_opposite_phase_cancellation() {
     uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N]{};
     uint16_t mono[LV_FFT_N]{};
     float rms[LV_AUDIO_CHANNEL_COUNT]{};
+    float peak[LV_AUDIO_CHANNEL_COUNT]{};
     const auto tone = audio_tone(4, 0.4f);
     for (int sample = 0; sample < LV_FFT_N; ++sample) {
         stereo[0][sample] = tone[sample];
@@ -215,11 +219,13 @@ static void test_mono_mix_accepts_opposite_phase_cancellation() {
             (uint16_t)(2 * LV_ADC_MID - tone[sample]);
     }
 
-    lv_prepare_mono_analysis(stereo, mono, 1.0f, rms);
+    lv_prepare_mono_analysis(stereo, mono, 1.0f, rms, peak);
 
     for (uint16_t sample : mono) assert(sample == LV_ADC_MID);
     assert(rms[0] > 0.28f && rms[0] < 0.29f);
     assert(rms[1] > 0.28f && rms[1] < 0.29f);
+    assert(peak[0] > 0.399f && peak[0] < 0.401f);
+    assert(peak[1] > 0.399f && peak[1] < 0.401f);
 }
 
 static float synthetic_kick_sample(float time_seconds) {
@@ -401,6 +407,196 @@ static void test_perceptual_level_uses_decibel_scale_and_noise_floor() {
     assert(lv_perceptual_level(0.5f) > lv_perceptual_level(0.1f));
     assert(lv_perceptual_level(1.0f) == 1.0f);
     assert(lv_perceptual_level(2.0f) == 1.0f);
+}
+
+static void test_level_dbfs_rounds_and_has_a_diagnostic_floor() {
+    assert(lv_level_dbfs(1.0f) == 0);
+    assert(lv_level_dbfs(2.0f) == 0);
+    assert(lv_level_dbfs(0.501187f) == -6);
+    assert(lv_level_dbfs(0.1f) == -20);
+    assert(lv_level_dbfs(0.0f) == -72);
+}
+
+static void test_audio_normalizer_adapts_without_promoting_noise_or_beats() {
+    lv_audio_normalizer_t normalizer{};
+    uint32_t now_ms = 0;
+    float gain = 0.0f;
+
+    for (int frame = 0; frame < 150; ++frame) {
+        gain = lv_audio_normalizer_update(&normalizer, 0.025f, false,
+                                          now_ms);
+        now_ms += 33;
+    }
+    assert(!normalizer.gate_open);
+    assert(gain > 0.95f && gain < 1.05f);
+
+    for (int frame = 0; frame < 2; ++frame) {
+        gain = lv_audio_normalizer_update(&normalizer, 0.032f, false,
+                                          now_ms);
+        now_ms += 33;
+        assert(!normalizer.gate_open);
+    }
+    gain = lv_audio_normalizer_update(&normalizer, 0.032f, false, now_ms);
+    now_ms += 33;
+    assert(normalizer.gate_open);
+    assert(gain > 5.5f && gain <= 6.3f);
+
+    const float before_hit = gain;
+    gain = lv_audio_normalizer_update(&normalizer, 0.20f, false, now_ms);
+    now_ms += 33;
+    assert(normalizer.gate_open);
+    assert(gain > before_hit * 0.95f);
+
+    for (int frame = 0; frame < 75; ++frame) {
+        gain = lv_audio_normalizer_update(&normalizer, 0.20f, false,
+                                          now_ms);
+        now_ms += 33;
+    }
+    assert(gain > 0.8f && gain < 2.3f);
+
+    const float before_quiet_return = gain;
+    gain = lv_audio_normalizer_update(&normalizer, 0.032f, false, now_ms);
+    now_ms += 33;
+    assert(gain < before_quiet_return + 0.1f);
+    for (int frame = 0; frame < 180; ++frame) {
+        gain = lv_audio_normalizer_update(&normalizer, 0.032f, false,
+                                          now_ms);
+        now_ms += 33;
+    }
+    assert(gain > 3.5f && gain < 6.3f);
+
+    const float before_silence = gain;
+    for (int frame = 0; frame < 30; ++frame) {
+        gain = lv_audio_normalizer_update(&normalizer, 0.025f, false,
+                                          now_ms);
+        now_ms += 33;
+    }
+    assert(!normalizer.gate_open);
+    assert(gain < before_silence);
+}
+
+static void test_audio_normalizer_rejects_an_isolated_noise_spike() {
+    lv_audio_normalizer_t normalizer{};
+    uint32_t now_ms = 0;
+    for (int frame = 0; frame < 30; ++frame) {
+        lv_audio_normalizer_update(&normalizer, 0.025f, false, now_ms);
+        now_ms += 33;
+    }
+    lv_audio_normalizer_update(&normalizer, 0.040f, false, now_ms);
+    now_ms += 33;
+    assert(!normalizer.gate_open);
+    for (int frame = 0; frame < 4; ++frame) {
+        lv_audio_normalizer_update(&normalizer, 0.025f, false, now_ms);
+        now_ms += 33;
+    }
+    assert(!normalizer.gate_open);
+    assert(normalizer.gain > 0.95f && normalizer.gain < 1.05f);
+}
+
+static void test_audio_calibration_accepts_and_removes_stable_noise() {
+    lv_audio_calibration_t calibration{};
+    lv_audio_calibration_reset(&calibration);
+    lv_channel_analysis_t noise{};
+    noise.rms_level = 0.025f;
+    for (int band = 0; band < LV_BAND_COUNT; ++band) {
+        noise.band_level[band] = 0.010f + band * 0.0005f;
+    }
+    for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
+        noise.mel_level[band] = 0.008f + band * 0.0004f;
+    }
+    for (int frame = 0; frame < 100; ++frame) {
+        lv_audio_calibration_add(&calibration, noise.rms_level, &noise);
+    }
+
+    assert(lv_audio_calibration_finish(&calibration));
+    assert(calibration.valid);
+    assert(calibration.rms_floor >= 0.025f);
+    assert(calibration.rms_floor < 0.026f);
+
+    auto filtered = noise;
+    lv_audio_calibration_apply(&calibration, &filtered, 6.0f);
+    assert(filtered.rms_level < 0.0001f);
+    for (float level : filtered.band_level) assert(level < 0.0001f);
+    for (float level : filtered.mel_level) assert(level < 0.0001f);
+
+    lv_channel_analysis_t signal{};
+    signal.rms_level = 0.10f;
+    std::fill_n(signal.band_level, LV_BAND_COUNT, 0.10f);
+    std::fill_n(signal.mel_level, LV_MEL_BAND_COUNT, 0.08f);
+    lv_audio_calibration_apply(&calibration, &signal, 2.0f);
+    assert(signal.rms_level > 0.19f && signal.rms_level < 0.20f);
+    assert(signal.band_level[0] > 0.19f && signal.band_level[0] < 0.20f);
+    assert(signal.mel_level[0] > 0.15f && signal.mel_level[0] < 0.16f);
+}
+
+static void test_calibrated_spectral_signal_rejects_noise_and_one_band_spikes() {
+    lv_audio_calibration_t calibration{};
+    calibration.valid = true;
+    std::fill_n(calibration.mel_floor, LV_MEL_BAND_COUNT, 0.010f);
+
+    lv_channel_analysis_t analysis{};
+    std::fill_n(analysis.mel_level, LV_MEL_BAND_COUNT, 0.010f);
+    assert(!lv_audio_calibration_signal_present(&calibration, &analysis));
+
+    analysis.mel_level[4] = 0.013f;
+    assert(!lv_audio_calibration_signal_present(&calibration, &analysis));
+
+    analysis.mel_level[5] = 0.013f;
+    assert(lv_audio_calibration_signal_present(&calibration, &analysis));
+}
+
+static void test_spectral_signal_keeps_quiet_music_gate_open_with_hold() {
+    lv_audio_normalizer_t normalizer{};
+    normalizer.noise_floor = 0.025f;
+    uint32_t now_ms = 0;
+
+    // Broadband RMS remains below the noise gate, but persistent calibrated
+    // frequency content proves this is quiet music rather than silence.
+    for (int frame = 0; frame < 3; ++frame) {
+        lv_audio_normalizer_update(&normalizer, 0.024f, true, now_ms);
+        now_ms += 33;
+    }
+    assert(normalizer.gate_open);
+    assert(normalizer.gain > 6.0f);
+
+    // Brief spaces between notes do not visibly chop the visualization.
+    for (int frame = 0; frame < 12; ++frame) {
+        lv_audio_normalizer_update(&normalizer, 0.024f, false, now_ms);
+        now_ms += 33;
+    }
+    assert(normalizer.gate_open);
+
+    // Sustained calibrated silence still closes the gate.
+    for (int frame = 0; frame < 6; ++frame) {
+        lv_audio_normalizer_update(&normalizer, 0.024f, false, now_ms);
+        now_ms += 33;
+    }
+    assert(!normalizer.gate_open);
+}
+
+static void test_audio_calibration_rejects_variable_input() {
+    lv_audio_calibration_t calibration{};
+    lv_channel_analysis_t frame{};
+    for (int sample = 0; sample < 100; ++sample) {
+        frame.rms_level = sample % 2 == 0 ? 0.010f : 0.100f;
+        std::fill_n(frame.band_level, LV_BAND_COUNT, frame.rms_level);
+        std::fill_n(frame.mel_level, LV_MEL_BAND_COUNT, frame.rms_level);
+        lv_audio_calibration_add(&calibration, frame.rms_level, &frame);
+    }
+    assert(!lv_audio_calibration_finish(&calibration));
+    assert(!calibration.valid);
+}
+
+static void test_audio_normalizer_preserves_an_explicit_floor() {
+    lv_audio_normalizer_t normalizer{};
+    normalizer.noise_floor = 0.025f;
+    uint32_t now_ms = 0;
+    for (int frame = 0; frame < 300; ++frame) {
+        lv_audio_normalizer_update(&normalizer, 0.015f, false, now_ms);
+        now_ms += 33;
+    }
+    assert(!normalizer.gate_open);
+    assert(std::fabs(normalizer.noise_floor - 0.025f) < 0.000001f);
 }
 
 static void test_meter_level_gates_noise_without_reducing_normal_audio() {
@@ -2324,6 +2520,14 @@ int main() {
     test_fft_preserves_tone_amplitude();
     test_boosted_quiet_kick_creates_visible_envelope();
     test_perceptual_level_uses_decibel_scale_and_noise_floor();
+    test_level_dbfs_rounds_and_has_a_diagnostic_floor();
+    test_audio_normalizer_adapts_without_promoting_noise_or_beats();
+    test_audio_normalizer_rejects_an_isolated_noise_spike();
+    test_audio_calibration_accepts_and_removes_stable_noise();
+    test_calibrated_spectral_signal_rejects_noise_and_one_band_spikes();
+    test_spectral_signal_keeps_quiet_music_gate_open_with_hold();
+    test_audio_calibration_rejects_variable_input();
+    test_audio_normalizer_preserves_an_explicit_floor();
     test_meter_level_gates_noise_without_reducing_normal_audio();
     test_lcd_spectrum_bins_preserve_low_and_high_frequency_edges();
     test_audio_activity_ignores_isolated_noise_spikes();

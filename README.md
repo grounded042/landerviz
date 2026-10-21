@@ -384,6 +384,49 @@ device-service gap, `H` is the downstream USB host-service gap, and `K` is
 keyboard-report forwarding latency. These counters exist to validate the
 firmware on the real RP2040; desktop preview timing is not a substitute.
 
+FLOW keeps the fixed 8x (+18 dB) passive-mixer compensation. After the FFT, it
+subtracts calibrated noise power per frequency band and applies a shared
+adaptive gain before any FLOW feature extraction. Gain scaling commutes with
+the linear FFT; placing it here allows spectral noise removal first. The
+adaptive stage targets a useful program level, reduces gain over sustained
+loud passages, recovers slowly for quiet tracks, and cannot increase gain
+while the noise-relative gate is closed. A single beat therefore remains part
+of the music rather than being immediately normalized away.
+
+After calibration, the music gate also accepts sustained energy in at least
+two overlapping mel-frequency bands above their individual noise floors. This
+keeps genuinely quiet passages alive even when their total RMS level is near
+the broadband floor. Opening still requires three consecutive analysis frames,
+and a half-second close hold bridges gaps between notes without leaving paused
+audio visibly active.
+
+To calibrate the current input hardware, pause audio, hold the external mode
+button while LanderViz boots, and keep holding it through the 1.2-second splash.
+Release when the LCD says `RELEASE BUTTON`; `SILENCE` then counts through a
+three-second measurement while USB service continues. `CALIBRATION OK` reports
+the accepted broadband floor. `CALIBRATION BAD` means the input varied too much
+and should be retried with audio paused. Calibration is deliberately RAM-only
+in this validation build and therefore does not survive a reboot.
+
+For audio-input calibration, set `AUDIO_CALIBRATION_DISPLAY` to `1` in
+`main.cpp`. The three profiling pages are temporarily replaced with four
+diagnostic pages:
+
+- `RMS L-36 R-38`: the largest pre-gain RMS level in the latest one-second
+  measurement window, in dBFS;
+- `PEAK L-18 R-20`: the largest pre-gain sample peak in that window; and
+- `GAIN 6.3 N-51O`: adaptive gain, calibrated physical-input noise floor, and
+  whether its gate is open (`O`) or closed (`C`); and
+- `B123>456 M000`: the one-second maximum FLOW raw bass and rendered body on a
+  0–999 scale, followed by missed analysis windows.
+
+The input readings divide out `AUDIO_INPUT_GAIN`, so they describe the voltage
+that actually reached the ADC rather than either visualization gain. Wait at
+least two seconds after changing volume, then record the typical readings over
+the same repeatable passage. A full five-page rotation takes ten seconds. Set
+`AUDIO_CALIBRATION_DISPLAY` back to `0` to restore the normal performance
+pages.
+
 ## Safe bring-up order
 
 1. Verify that the physical Moonlander is revision A. Do not infer this only

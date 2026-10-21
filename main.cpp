@@ -47,6 +47,7 @@
 #define NUM_KEYS        72        // Moonlander total; mapping is pinned in moonlander_map.h
 #define SAMPLE_HZ       15625     // Per channel; 61 capture windows/s, ~30 analyses/s
 #define AUDIO_INPUT_GAIN 8.0f     // Passive mixer compensation; +18 dB visualization gain
+#define AUDIO_CALIBRATION_DISPLAY 1 // Temporary: physical input + FLOW bass on LCD
 #define LCD_REFRESH_MS  100       // 10 fps; the character LCD need not steal RGB frame time
 #define KEYBOARD_FRAME_US 33333   // 30 fps; Moonlander LED flush ceiling is ~38 fps
 
@@ -242,7 +243,26 @@ static bool adc_tick(struct repeating_timer*) {
 
 static lv_channel_analysis_t audio[LV_AUDIO_CHANNEL_COUNT] = {};
 static lv_audio_activity_t audio_activity = {};
+static lv_audio_normalizer_t flow_normalizer = {};
+static lv_audio_calibration_t audio_calibration = {};
+
+enum class input_calibration_state_t {
+    NONE,
+    WAIT_RELEASE,
+    COLLECTING,
+    COMPLETE,
+    FAILED,
+};
+
+static input_calibration_state_t input_calibration_state =
+    input_calibration_state_t::NONE;
+static uint32_t input_calibration_message_until_ms = 0;
+static constexpr uint16_t INPUT_CALIBRATION_FRAMES = 92;
 static bool audio_present = false;
+static float physical_rms_max[LV_AUDIO_CHANNEL_COUNT] = {};
+static float physical_peak_max[LV_AUDIO_CHANNEL_COUNT] = {};
+static float diagnostic_bass_max = 0.0f;
+static float diagnostic_body_max = 0.0f;
 
 static void reset_metrics_after_usb_settles(uint32_t now_ms) {
     static uint32_t ready_since_ms = 0;
@@ -281,22 +301,78 @@ static void analyze_frame(
     static lv_channel_analysis_t mono_analysis = {};
     static uint16_t mono_samples[LV_FFT_N];
     static bool prior_was_mono = false;
+    static bool prior_was_calibrating = false;
 
     if (mono_flow) {
-        if (!prior_was_mono) mono_analysis = {};
+        const bool calibrating =
+            input_calibration_state ==
+                input_calibration_state_t::WAIT_RELEASE ||
+            input_calibration_state ==
+                input_calibration_state_t::COLLECTING;
+        if (!prior_was_mono || (prior_was_calibrating && !calibrating)) {
+            mono_analysis = {};
+        }
 
         float stereo_rms[LV_AUDIO_CHANNEL_COUNT] = {};
+        float stereo_peak[LV_AUDIO_CHANNEL_COUNT] = {};
         lv_prepare_mono_analysis(samples, mono_samples, AUDIO_INPUT_GAIN,
-                                 stereo_rms);
+                                 stereo_rms, stereo_peak);
+        const float shared_rms = std::max(stereo_rms[0], stereo_rms[1]);
         lv_analyze_channel(&mono_analysis, mono_samples, AUDIO_INPUT_GAIN);
         usb_bridge_device_task();
 
-        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
-            audio[channel] = mono_analysis;
-            audio[channel].rms_level = stereo_rms[channel];
-            above_noise_gate |=
-                lv_meter_level(stereo_rms[channel] * 1.41421356f) > 0.0f;
+        if (input_calibration_state ==
+            input_calibration_state_t::COLLECTING) {
+            lv_audio_calibration_add(
+                &audio_calibration, shared_rms, &mono_analysis);
+            if (audio_calibration.frames_seen >=
+                INPUT_CALIBRATION_FRAMES) {
+                const bool accepted = lv_audio_calibration_finish(
+                    &audio_calibration);
+                flow_normalizer = {};
+                if (accepted) {
+                    flow_normalizer.noise_floor =
+                        audio_calibration.rms_floor;
+                    input_calibration_state =
+                        input_calibration_state_t::COMPLETE;
+                } else {
+                    input_calibration_state =
+                        input_calibration_state_t::FAILED;
+                }
+                input_calibration_message_until_ms =
+                    to_ms_since_boot(get_absolute_time()) + 2000;
+                audio_activity = {};
+                audio_present = false;
+                lv_flow_v3_engine_init(&flow_v3);
+            }
         }
+
+        float adaptive_gain = 1.0f;
+        if (!calibrating) {
+            const bool calibrated_spectral_signal =
+                lv_audio_calibration_signal_present(
+                    &audio_calibration, &mono_analysis);
+            adaptive_gain = lv_audio_normalizer_update(
+                &flow_normalizer, shared_rms,
+                calibrated_spectral_signal, audio_time_ms);
+        }
+        lv_channel_analysis_t normalized_analysis = mono_analysis;
+        lv_audio_calibration_apply(
+            &audio_calibration, &normalized_analysis, adaptive_gain);
+
+        for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+            audio[channel] = normalized_analysis;
+            audio[channel].rms_level = lv_audio_calibrated_level(
+                &audio_calibration, stereo_rms[channel], adaptive_gain);
+            physical_rms_max[channel] = std::max(
+                physical_rms_max[channel],
+                stereo_rms[channel] / AUDIO_INPUT_GAIN);
+            physical_peak_max[channel] = std::max(
+                physical_peak_max[channel],
+                stereo_peak[channel] / AUDIO_INPUT_GAIN);
+        }
+        above_noise_gate = !calibrating && flow_normalizer.gate_open;
+        prior_was_calibrating = calibrating;
     } else {
         for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
             lv_analyze_channel(&audio[channel], samples[channel],
@@ -312,6 +388,7 @@ static void analyze_frame(
         }
     }
     prior_was_mono = mono_flow;
+    if (!mono_flow) prior_was_calibrating = false;
     runtime_metrics.max_spectrum_us = std::max(
         runtime_metrics.max_spectrum_us,
         time_us_32() - spectrum_started_us);
@@ -322,6 +399,12 @@ static void analyze_frame(
         lv_audio_activity_update(&audio_activity, above_noise_gate, now_ms);
     lv_flow_v3_engine_update(&flow_v3, audio, above_noise_gate,
                              audio_time_ms);
+    if (mono_flow) {
+        diagnostic_bass_max = std::max(
+            diagnostic_bass_max, flow_v3.bass.features.raw_bass);
+        diagnostic_body_max = std::max(
+            diagnostic_body_max, flow_v3.bass.features.body);
+    }
     runtime_metrics.max_features_us = std::max(
         runtime_metrics.max_features_us,
         time_us_32() - features_started_us);
@@ -333,6 +416,40 @@ static void analyze_frame(
 
 static lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
 static uint32_t mode_announce_until_ms = 0;
+
+static bool poll_input_calibration(uint32_t now_ms) {
+    static uint32_t release_since_ms = 0;
+    switch (input_calibration_state) {
+        case input_calibration_state_t::NONE:
+            return false;
+        case input_calibration_state_t::WAIT_RELEASE:
+            if (!gpio_get(BUTTON_PIN)) {
+                release_since_ms = 0;
+                return true;
+            }
+            if (release_since_ms == 0) release_since_ms = now_ms;
+            if (now_ms - release_since_ms >= 30) {
+                lv_audio_calibration_reset(&audio_calibration);
+                flow_normalizer = {};
+                audio_activity = {};
+                audio_present = false;
+                input_calibration_state =
+                    input_calibration_state_t::COLLECTING;
+                release_since_ms = 0;
+            }
+            return true;
+        case input_calibration_state_t::COLLECTING:
+            return true;
+        case input_calibration_state_t::COMPLETE:
+        case input_calibration_state_t::FAILED:
+            if ((int32_t)(input_calibration_message_until_ms - now_ms) > 0) {
+                return true;
+            }
+            input_calibration_state = input_calibration_state_t::NONE;
+            return false;
+    }
+    return false;
+}
 
 static void poll_button() {
     static bool stable = true;          // pull-up: idle = high
@@ -371,11 +488,110 @@ static void poll_button() {
 // row 1 mode name + fps. Boot splash on power-up.
 // ---------------------------------------------------------------------------
 
+#if !AUDIO_CALIBRATION_DISPLAY
 static uint32_t tenths_of_ms(uint32_t microseconds) {
     return std::min<uint32_t>((microseconds + 50) / 100, 999);
 }
+#endif
+
+typedef struct {
+    float rms[LV_AUDIO_CHANNEL_COUNT];
+    float peak[LV_AUDIO_CHANNEL_COUNT];
+    float displayed_rms[LV_AUDIO_CHANNEL_COUNT];
+    float displayed_peak[LV_AUDIO_CHANNEL_COUNT];
+    float bass;
+    float body;
+    float displayed_bass;
+    float displayed_body;
+    uint32_t window_started_ms;
+    bool published;
+} input_diagnostic_t;
+
+static input_diagnostic_t input_diagnostic = {};
+
+static bool lcd_input_calibration(uint32_t now_ms) {
+    (void)now_ms;
+    const char *line0 = nullptr;
+    char line1[17] = {};
+    switch (input_calibration_state) {
+        case input_calibration_state_t::NONE:
+            return false;
+        case input_calibration_state_t::WAIT_RELEASE:
+            line0 = "INPUT CAL";
+            snprintf(line1, sizeof(line1), "%-16s", "RELEASE BUTTON");
+            break;
+        case input_calibration_state_t::COLLECTING: {
+            line0 = "INPUT CAL";
+            const uint32_t percent = std::min<uint32_t>(
+                audio_calibration.frames_seen * 100u /
+                    INPUT_CALIBRATION_FRAMES,
+                100u);
+            snprintf(line1, sizeof(line1), "SILENCE %3lu%%    ",
+                     (unsigned long)percent);
+            break;
+        }
+        case input_calibration_state_t::COMPLETE:
+            line0 = "CALIBRATION OK";
+            snprintf(line1, sizeof(line1), "NOISE %3d dBFS ",
+                     lv_level_dbfs(audio_calibration.rms_floor /
+                                   AUDIO_INPUT_GAIN));
+            break;
+        case input_calibration_state_t::FAILED:
+            line0 = "CALIBRATION BAD";
+            snprintf(line1, sizeof(line1), "%-16s", "MUSIC? TRY AGAIN");
+            break;
+    }
+
+    char padded_line0[17];
+    char padded_line1[17];
+    snprintf(padded_line0, sizeof(padded_line0), "%-16s", line0);
+    snprintf(padded_line1, sizeof(padded_line1), "%-16s", line1);
+    lcd_set_cursor(0, 0);
+    lcd_print(padded_line0);
+    lcd_set_cursor(0, 1);
+    lcd_print(padded_line1);
+    return true;
+}
+
+static void update_input_diagnostic(uint32_t now_ms) {
+    for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+        input_diagnostic.rms[channel] = std::max(
+            input_diagnostic.rms[channel], physical_rms_max[channel]);
+        input_diagnostic.peak[channel] = std::max(
+            input_diagnostic.peak[channel], physical_peak_max[channel]);
+        physical_rms_max[channel] = 0.0f;
+        physical_peak_max[channel] = 0.0f;
+    }
+    input_diagnostic.bass = std::max(
+        input_diagnostic.bass, diagnostic_bass_max);
+    input_diagnostic.body = std::max(
+        input_diagnostic.body, diagnostic_body_max);
+    diagnostic_bass_max = 0.0f;
+    diagnostic_body_max = 0.0f;
+    if (input_diagnostic.window_started_ms == 0) {
+        input_diagnostic.window_started_ms = now_ms;
+    }
+    if (now_ms - input_diagnostic.window_started_ms < 1000) return;
+
+    for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+        input_diagnostic.displayed_rms[channel] =
+            input_diagnostic.rms[channel];
+        input_diagnostic.displayed_peak[channel] =
+            input_diagnostic.peak[channel];
+        input_diagnostic.rms[channel] = 0.0f;
+        input_diagnostic.peak[channel] = 0.0f;
+    }
+    input_diagnostic.displayed_bass = input_diagnostic.bass;
+    input_diagnostic.displayed_body = input_diagnostic.body;
+    input_diagnostic.bass = 0.0f;
+    input_diagnostic.body = 0.0f;
+    input_diagnostic.window_started_ms = now_ms;
+    input_diagnostic.published = true;
+}
 
 static void lcd_status(uint32_t now_ms, int fps) {
+    if (lcd_input_calibration(now_ms)) return;
+    update_input_diagnostic(now_ms);
     const bool show_spectrum =
         mode == lv_viz_mode_t::FLOW || mode == lv_viz_mode_t::SPECTRUM;
     static bool spectrum_chars_loaded = false;
@@ -447,12 +663,24 @@ static void lcd_status(uint32_t now_ms, int fps) {
     }
     const bool show_usb_status = strcmp(usb_label, "OK") != 0 ||
                                  (int32_t)(usb_status_until_ms - now_ms) > 0;
+#if AUDIO_CALIBRATION_DISPLAY
+    const uint32_t flow_status_page = (now_ms / 2000u) % 5u;
+#else
+    const uint32_t flow_status_page = (now_ms / 2000u) % 4u;
+#endif
     if (show_usb_status) {
         snprintf(line1, sizeof(line1), "USB: %-11s", usb_label);
     } else if ((int32_t)(mode_announce_until_ms - now_ms) > 0) {
         snprintf(line1, sizeof(line1), ">%-15s", lv_viz_mode_name(mode));
     } else if (mode == lv_viz_mode_t::FLOW &&
-               (now_ms / 2000u) % 4u == 1u) {
+               flow_status_page == 1u) {
+#if AUDIO_CALIBRATION_DISPLAY
+        const float *rms = input_diagnostic.published
+                               ? input_diagnostic.displayed_rms
+                               : input_diagnostic.rms;
+        snprintf(line1, sizeof(line1), "RMS L%3d R%3d",
+                 lv_level_dbfs(rms[0]), lv_level_dbfs(rms[1]));
+#else
         const uint32_t missed_audio_windows = adc_buffers.dropped;
         snprintf(line1, sizeof(line1), "A%03lu R%03lu M%03lu  ",
                  (unsigned long)tenths_of_ms(
@@ -461,15 +689,34 @@ static void lcd_status(uint32_t now_ms, int fps) {
                      runtime_metrics.max_render_us),
                  (unsigned long)std::min<uint32_t>(missed_audio_windows,
                                                    999));
+#endif
     } else if (mode == lv_viz_mode_t::FLOW &&
-               (now_ms / 2000u) % 4u == 2u) {
+               flow_status_page == 2u) {
+#if AUDIO_CALIBRATION_DISPLAY
+        const float *peak = input_diagnostic.published
+                                ? input_diagnostic.displayed_peak
+                                : input_diagnostic.peak;
+        snprintf(line1, sizeof(line1), "PEAK L%3d R%3d",
+                 lv_level_dbfs(peak[0]), lv_level_dbfs(peak[1]));
+#else
         snprintf(line1, sizeof(line1), "F%03lu E%03lu       ",
                  (unsigned long)tenths_of_ms(
                      runtime_metrics.max_spectrum_us),
                  (unsigned long)tenths_of_ms(
                      runtime_metrics.max_features_us));
+#endif
     } else if (mode == lv_viz_mode_t::FLOW &&
-               (now_ms / 2000u) % 4u == 3u) {
+               flow_status_page == 3u) {
+#if AUDIO_CALIBRATION_DISPLAY
+        const uint32_t gain_tenths = (uint32_t)std::clamp(
+            std::lround(flow_normalizer.gain * 10.0f), 0l, 999l);
+        snprintf(line1, sizeof(line1), "GAIN %lu.%lu N%3d%c",
+                 (unsigned long)(gain_tenths / 10u),
+                 (unsigned long)(gain_tenths % 10u),
+                 lv_level_dbfs(flow_normalizer.noise_floor /
+                               AUDIO_INPUT_GAIN),
+                 flow_normalizer.gate_open ? 'O' : 'C');
+#else
         const lv_usb_bridge_metrics_t usb = usb_bridge_metrics();
         snprintf(line1, sizeof(line1), "D%03lu H%03lu K%03lu  ",
                  (unsigned long)tenths_of_ms(
@@ -478,6 +725,22 @@ static void lcd_status(uint32_t now_ms, int fps) {
                      usb.max_host_task_gap_us),
                  (unsigned long)tenths_of_ms(
                      usb.max_keyboard_forward_us));
+#endif
+#if AUDIO_CALIBRATION_DISPLAY
+    } else if (mode == lv_viz_mode_t::FLOW &&
+               flow_status_page == 4u) {
+        const uint32_t bass = (uint32_t)std::clamp(
+            std::lround(input_diagnostic.displayed_bass * 1000.0f),
+            0l, 999l);
+        const uint32_t body = (uint32_t)std::clamp(
+            std::lround(input_diagnostic.displayed_body * 1000.0f),
+            0l, 999l);
+        const uint32_t missed_audio_windows = adc_buffers.dropped;
+        snprintf(line1, sizeof(line1), "B%03lu>%03lu M%03lu",
+                 (unsigned long)bass, (unsigned long)body,
+                 (unsigned long)std::min<uint32_t>(missed_audio_windows,
+                                                   999));
+#endif
     } else {
         const int display_fps = fps < 0 ? 0 : (fps > 999 ? 999 : fps);
         memset(line1, ' ', 16);
@@ -501,6 +764,16 @@ static void lcd_status(uint32_t now_ms, int fps) {
 
 int main() {
     lv_audio_analysis_init();
+
+    // Latch calibration only when the external mode button remains held
+    // throughout the splash. This makes startup intent independent of one
+    // instantaneous GPIO read.
+    gpio_init(BUTTON_PIN);
+    gpio_set_dir(BUTTON_PIN, GPIO_IN);
+    gpio_pull_up(BUTTON_PIN);
+    sleep_ms(2);
+    const bool calibration_pressed_at_start = !gpio_get(BUTTON_PIN);
+
     usb_bridge_init();
     lv_flow_v3_engine_init(&flow_v3);
 
@@ -511,11 +784,10 @@ int main() {
     lcd_set_cursor(0, 1); lcd_print(BOOT_LINE1);
     sleep_ms(1200);
     lcd_cmd(0x01); sleep_ms(2);
-
-    // Button
-    gpio_init(BUTTON_PIN);
-    gpio_set_dir(BUTTON_PIN, GPIO_IN);
-    gpio_pull_up(BUTTON_PIN);
+    if (calibration_pressed_at_start && !gpio_get(BUTTON_PIN)) {
+        input_calibration_state =
+            input_calibration_state_t::WAIT_RELEASE;
+    }
 
     // ADC
     adc_init();
@@ -536,7 +808,7 @@ int main() {
         usb_bridge_device_task();
         uint32_t now = to_ms_since_boot(get_absolute_time());
         reset_metrics_after_usb_settles(now);
-        poll_button();
+        if (!poll_input_calibration(now)) poll_button();
 
         if (adc_buffers.ready >= 0) {
             const uint32_t irq_state = save_and_disable_interrupts();

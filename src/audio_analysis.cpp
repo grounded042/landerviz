@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #if defined(LANDERVIZ_USE_CMSIS_DSP_Q15)
 #include "dsp/transform_functions.h"
@@ -88,7 +89,8 @@ void lv_audio_analysis_init() {
 void lv_prepare_mono_analysis(
     const uint16_t stereo[LV_AUDIO_CHANNEL_COUNT][LV_FFT_N],
     uint16_t mono[LV_FFT_N], float input_gain,
-    float rms_level[LV_AUDIO_CHANNEL_COUNT]) {
+    float rms_level[LV_AUDIO_CHANNEL_COUNT],
+    float peak_level[LV_AUDIO_CHANNEL_COUNT]) {
     float mean[LV_AUDIO_CHANNEL_COUNT]{};
     for (int sample = 0; sample < LV_FFT_N; ++sample) {
         for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
@@ -100,12 +102,17 @@ void lv_prepare_mono_analysis(
     for (float &channel_mean : mean) channel_mean /= LV_FFT_N;
 
     float sum_sq[LV_AUDIO_CHANNEL_COUNT]{};
+    for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
+        peak_level[channel] = 0.0f;
+    }
     for (int sample = 0; sample < LV_FFT_N; ++sample) {
         for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
             const float value =
                 (((float)stereo[channel][sample] - mean[channel]) /
                  LV_ADC_MID) * input_gain;
             sum_sq[channel] += value * value;
+            peak_level[channel] = std::max(
+                peak_level[channel], std::fabs(value));
         }
     }
     for (int channel = 0; channel < LV_AUDIO_CHANNEL_COUNT; ++channel) {
@@ -122,6 +129,247 @@ float lv_perceptual_level(float linear_level) {
 
     const float level_db = 20.0f * std::log10(linear_level);
     return (level_db - floor_db) / -floor_db;
+}
+
+int lv_level_dbfs(float linear_level) {
+    constexpr int floor_db = -72;
+    constexpr float one_db_ratio = 0.891250938f;
+    float half_db_threshold = 0.944060876f;
+    for (int db = 0; db > floor_db; --db) {
+        if (linear_level >= half_db_threshold) return db;
+        half_db_threshold *= one_db_ratio;
+    }
+    return floor_db;
+}
+
+float lv_audio_normalizer_update(lv_audio_normalizer_t *state,
+                                 float linear_rms,
+                                 bool calibrated_spectral_signal,
+                                 uint32_t now_ms) {
+    constexpr float initial_noise_floor = 0.025f;
+    constexpr float gate_open_ratio = 1.18f;
+    constexpr float gate_close_ratio = 1.08f;
+    constexpr float gate_open_margin = 0.003f;
+    constexpr float gate_close_margin = 0.001f;
+    constexpr float target_rms = 0.20f;
+    constexpr float minimum_gain = 0.50f;
+    constexpr float maximum_gain = 6.30f;
+    constexpr float gain_reduce_ms = 1200.0f;
+    constexpr float gain_recover_ms = 6000.0f;
+    constexpr float silence_return_ms = 10000.0f;
+
+    linear_rms = std::max(0.0f, linear_rms);
+    if (!state->initialized) {
+        state->gain = 1.0f;
+        if (state->noise_floor <= 0.0f) {
+            state->noise_floor = initial_noise_floor;
+        }
+        state->last_update_ms = now_ms;
+        state->initialized = true;
+    }
+
+    const uint32_t elapsed_ms = now_ms - state->last_update_ms;
+    const auto response = [elapsed_ms](float time_constant_ms) {
+        return elapsed_ms > 0
+                   ? 1.0f - std::exp(-(float)elapsed_ms / time_constant_ms)
+                   : 0.0f;
+    };
+
+    const float open_threshold = std::max(
+        state->noise_floor * gate_open_ratio,
+        state->noise_floor + gate_open_margin);
+    const float close_threshold = std::max(
+        state->noise_floor * gate_close_ratio,
+        state->noise_floor + gate_close_margin);
+    constexpr uint8_t gate_open_confirmation_frames = 3;
+    constexpr uint8_t gate_close_confirmation_frames = 15;
+    if (state->gate_open) {
+        state->frames_above_gate = 0;
+        if (linear_rms < close_threshold &&
+            !calibrated_spectral_signal) {
+            state->frames_below_gate = std::min<uint8_t>(
+                (uint8_t)(state->frames_below_gate + 1),
+                gate_close_confirmation_frames);
+            if (state->frames_below_gate >=
+                gate_close_confirmation_frames) {
+                state->gate_open = false;
+                state->frames_below_gate = 0;
+            }
+        } else {
+            state->frames_below_gate = 0;
+        }
+    } else {
+        state->frames_below_gate = 0;
+        if (linear_rms >= open_threshold ||
+            calibrated_spectral_signal) {
+            state->frames_above_gate = std::min<uint8_t>(
+                (uint8_t)(state->frames_above_gate + 1),
+                gate_open_confirmation_frames);
+            if (state->frames_above_gate >=
+                gate_open_confirmation_frames) {
+                state->gate_open = true;
+                state->frames_above_gate = 0;
+            }
+        } else {
+            state->frames_above_gate = 0;
+        }
+    }
+
+    if (!state->gate_open) {
+        state->gain +=
+            (1.0f - state->gain) * response(silence_return_ms);
+        state->last_update_ms = now_ms;
+        return state->gain;
+    }
+
+    const float signal_rms = std::sqrt(std::max(
+        0.0f, linear_rms * linear_rms -
+                  state->noise_floor * state->noise_floor));
+    const float target_gain = std::clamp(
+        target_rms / std::max(signal_rms, 0.0001f),
+        minimum_gain, maximum_gain);
+    if (!state->signal_seen) {
+        state->gain = target_gain;
+        state->signal_seen = true;
+    } else {
+        const float time_constant = target_gain < state->gain
+                                        ? gain_reduce_ms
+                                        : gain_recover_ms;
+        state->gain +=
+            (target_gain - state->gain) * response(time_constant);
+    }
+    state->gain = std::clamp(state->gain, minimum_gain, maximum_gain);
+    state->last_update_ms = now_ms;
+    return state->gain;
+}
+
+bool lv_audio_calibration_signal_present(
+    const lv_audio_calibration_t *calibration,
+    const lv_channel_analysis_t *analysis) {
+    if (!calibration->valid) return false;
+
+    constexpr float minimum_clean_level = 0.001f;
+    constexpr float clean_to_noise_ratio = 0.50f;
+    constexpr int required_bands = 2;
+    int bands_above_floor = 0;
+    for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
+        const float level = std::max(0.0f, analysis->mel_level[band]);
+        const float floor = std::max(0.0f, calibration->mel_floor[band]);
+        const float clean_power = std::max(
+            0.0f, level * level - floor * floor);
+        const float clean_level = std::sqrt(clean_power);
+        const float threshold = std::max(
+            minimum_clean_level, floor * clean_to_noise_ratio);
+        if (clean_level > threshold &&
+            ++bands_above_floor >= required_bands) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void lv_audio_calibration_reset(lv_audio_calibration_t *calibration) {
+    std::memset(calibration, 0, sizeof(*calibration));
+}
+
+void lv_audio_calibration_add(lv_audio_calibration_t *calibration,
+                              float linear_rms,
+                              const lv_channel_analysis_t *analysis) {
+    constexpr uint16_t warmup_frames = 15;
+    ++calibration->frames_seen;
+    if (calibration->frames_seen <= warmup_frames) return;
+
+    linear_rms = std::max(0.0f, linear_rms);
+    calibration->rms_sum += linear_rms;
+    calibration->rms_sum_sq += linear_rms * linear_rms;
+    for (int band = 0; band < LV_BAND_COUNT; ++band) {
+        const float level = std::max(0.0f, analysis->band_level[band]);
+        calibration->band_sum[band] += level;
+        calibration->band_sum_sq[band] += level * level;
+    }
+    for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
+        const float level = std::max(0.0f, analysis->mel_level[band]);
+        calibration->mel_sum[band] += level;
+        calibration->mel_sum_sq[band] += level * level;
+    }
+    ++calibration->frames_collected;
+}
+
+bool lv_audio_calibration_finish(lv_audio_calibration_t *calibration) {
+    constexpr uint16_t minimum_frames = 60;
+    constexpr float maximum_variation = 0.35f;
+    if (calibration->frames_collected < minimum_frames) {
+        calibration->valid = false;
+        return false;
+    }
+
+    const float count = (float)calibration->frames_collected;
+    const auto floor_from_moments = [count](float sum, float sum_sq) {
+        const float mean = sum / count;
+        const float variance = std::max(0.0f, sum_sq / count - mean * mean);
+        return mean + 2.0f * std::sqrt(variance);
+    };
+    const float mean_rms = calibration->rms_sum / count;
+    const float variance_rms = std::max(
+        0.0f, calibration->rms_sum_sq / count - mean_rms * mean_rms);
+    const float variation = std::sqrt(variance_rms) /
+                            std::max(mean_rms, 0.0001f);
+    if (variation > maximum_variation) {
+        calibration->valid = false;
+        return false;
+    }
+
+    calibration->rms_floor = floor_from_moments(
+        calibration->rms_sum, calibration->rms_sum_sq);
+    for (int band = 0; band < LV_BAND_COUNT; ++band) {
+        calibration->band_floor[band] = floor_from_moments(
+            calibration->band_sum[band],
+            calibration->band_sum_sq[band]);
+    }
+    for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
+        calibration->mel_floor[band] = floor_from_moments(
+            calibration->mel_sum[band],
+            calibration->mel_sum_sq[band]);
+    }
+    calibration->valid = true;
+    return true;
+}
+
+float lv_audio_calibrated_level(
+    const lv_audio_calibration_t *calibration,
+    float linear_level, float gain) {
+    gain = std::max(0.0f, gain);
+    linear_level = std::max(0.0f, linear_level);
+    const float floor = calibration->valid
+                            ? calibration->rms_floor
+                            : 0.0f;
+    const float clean_power = std::max(
+        0.0f, linear_level * linear_level - floor * floor);
+    return std::min(1.0f, std::sqrt(clean_power) * gain);
+}
+
+void lv_audio_calibration_apply(
+    const lv_audio_calibration_t *calibration,
+    lv_channel_analysis_t *analysis, float gain) {
+    gain = std::max(0.0f, gain);
+    const auto clean_level = [gain](float level, float floor) {
+        const float clean_power = std::max(
+            0.0f, level * level - floor * floor);
+        return std::min(1.0f, std::sqrt(clean_power) * gain);
+    };
+
+    analysis->rms_level = lv_audio_calibrated_level(
+        calibration, analysis->rms_level, gain);
+    for (int band = 0; band < LV_BAND_COUNT; ++band) {
+        analysis->band_level[band] = clean_level(
+            analysis->band_level[band],
+            calibration->valid ? calibration->band_floor[band] : 0.0f);
+    }
+    for (int band = 0; band < LV_MEL_BAND_COUNT; ++band) {
+        analysis->mel_level[band] = clean_level(
+            analysis->mel_level[band],
+            calibration->valid ? calibration->mel_floor[band] : 0.0f);
+    }
 }
 
 float lv_meter_level(float linear_level) {
