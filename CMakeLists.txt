@@ -83,6 +83,7 @@ target_link_libraries(landerviz PRIVATE
   cmsis_dsp_q15
   hardware_adc
   hardware_clocks
+  hardware_i2c
   hardware_timer
   tinyusb_device
   tinyusb_host

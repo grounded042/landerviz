@@ -140,10 +140,11 @@ The mode button uses the internal pull-up resistor and approximately 30 ms
 debounce. A short press selects the next mode; holding for more than 800 ms
 selects the previous mode.
 
-GPIO2 through GPIO7 drove the prototype's parallel LCD. Revision A reuses
-GPIO2 and GPIO3 as the native I2C1 data and clock pins shared by the display
-port and the 3.3 V digital expansion footprint. GPIO4 through GPIO7 remain
-available for the expansion interface; their final mapping is open.
+GPIO2 through GPIO7 drove the initial parallel-LCD prototype. The validated
+revision-A breadboard configuration now uses GPIO2 and GPIO3 as the native
+I2C1 data and clock pins shared by the display port and the 3.3 V digital
+expansion footprint. GPIO4 through GPIO7 remain available for the expansion
+interface; their final mapping is open.
 
 ## USB-C connectors — frozen form, open power details
 
@@ -254,16 +255,19 @@ VBUS pad, breadboard contacts, jumpers, or downstream USB breakout.
 
 | Case | Duration | Minimum VBUS | Average current | Peak current | Peak power |
 |---|---:|---:|---:|---:|---:|
-| Controller and parallel LCD, Moonlander disconnected | startup interval | — | approximately 0.040 A | — | — |
-| Moonlander connected, visualization idle | 30 s | 5.196 V | 0.262 A | 0.303 A | 1.573 W |
-| FLOW with music | 60 s | 5.196 V | 0.291 A | 0.371 A | 1.927 W |
-| Moonlander reconnection/startup | event | 5.177 V | — | 0.505 A | 2.615 W |
-| All 72 keys white at 175/255 | 300 s | 5.174 V | 0.708 A | 0.709 A | 3.668 W |
+| Controller and serial LCD, Moonlander disconnected | 30 s | 5.210 V | 0.057 A | 0.057 A | 0.299 W |
+| Moonlander connected, visualization idle | 30 s | 5.197 V | 0.320 A | 0.332 A | 1.725 W |
+| FLOW with music | 60 s | 5.192 V | 0.354 A | 0.430 A | 2.234 W |
+| Moonlander reconnection/startup | event | 5.192 V | — | 0.406 A | 2.106 W |
+| All 72 keys white at 175/255 | 300 s | 5.174 V | 0.713 A | 0.724 A | 3.748 W |
 
 The five-minute 175/255 white soak remained visually white and electrically
-flat. Its first minute averaged 0.7076 A and its last minute averaged 0.7082 A,
+flat. Its first minute averaged 0.7121 A and its last minute averaged 0.7128 A,
 with no meaningful thermal drift at the meter. This validates the existing
-firmware cap of 175 for the breadboard prototype's worst commanded frame.
+firmware cap of 175 with the frozen serial-display configuration. An earlier
+parallel-display startup capture reached 0.505 A; retain that higher observed
+startup peak when sizing the design rather than treating the lower repeat as a
+new limit.
 
 Higher settings are not usable on the prototype. All-white 200/255 eventually
 shifted red/orange; 225 and 255 did so as well. The keyboard recovered white
@@ -273,12 +277,11 @@ itself identify whether the limiting element was the Pro Micro VBUS path,
 breadboard wiring, USB breakout, cable, or Moonlander. Do not use 200 as a
 design target merely because it survived briefly during a stepped sweep.
 
-The 0.708 A worst-case measurement also exceeds the firmware's current 500 mA
+The 0.724 A worst-case peak also exceeds the firmware's current 500 mA
 upstream USB declaration. Therefore this measurement closes the prototype
 brightness-cap question but does not close the revision-A power order blocker.
 Before schematic approval:
 
-- repeat the baseline with the frozen PCF8574T serial LCD and level translator;
 - decide how the upstream USB-C connection validly supplies the measured
   worst case;
 - select the downstream switch, protection, traces, connectors, and cable path
@@ -399,10 +402,13 @@ pull-up resistor values during schematic capture after inspecting the delivered
 backpacks; do not assume their fitted pull-up values.
 
 Firmware probes the common PCF8574T address `0x27` and PCF8574A address `0x3F`,
-then uses the verified backpack-to-LCD pin mapping. The delivered modules must
-be checked for address, mapping, contrast adjustment, backlight control,
-100 kHz communication, and refresh behavior on the RP2040 breadboard before
-the PCB is ordered. The display driver becomes a replaceable firmware
+then uses the verified backpack-to-LCD pin mapping. The delivered Teyleten
+Robot module was validated at `0x27` with the common P0=RS, P2=enable,
+P3=backlight, and P4 through P7=data mapping. Contrast, backlight-on operation,
+100 kHz communication, differential screen updates, and approximately 30 FPS
+keyboard output were demonstrated on the RP2040 breadboard. Confirm the
+backpack's fitted pull-ups and deliberately test backlight-off control before
+schematic approval. The display driver becomes a replaceable firmware
 interface even though revision A ships only this character-display backend.
 
 ## Digital expansion footprint — frozen presence, open connector

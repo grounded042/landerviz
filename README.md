@@ -113,15 +113,15 @@ plateau. Stop if USB disconnects, the keyboard resets or flickers, or its supply
 voltage becomes marginal. Restore the ordinary `moonlander` and `rp2040`
 artifacts after measurement; they retain the production cap of 175.
 
-The 2026-10-22 breadboard test validated 175 as the production limit. A
-five-minute, all-white soak at 175 averaged 0.708 A and 3.663 W; current varied
-by less than 2 mA and the lowest upstream VBUS reading was 5.174 V. White at
-200 eventually shifted red/orange and recovered only after reducing the test
-level to 64; 225 and 255 also failed. This is evidence of a sustained-load
-limit somewhere in the prototype's downstream power path even though voltage
-at the upstream FNB58 remained stable. Do not raise `BRIGHTNESS_CAP` above 175
-on the breadboard. [PCB.md](PCB.md) records the complete measurement baseline
-and the remaining USB-C power decision.
+The 2026-10-22 breadboard test validated 175 as the production limit. With the
+revision-A serial LCD configuration, a five-minute all-white soak at 175
+averaged 0.713 A and peaked at 0.724 A; the lowest upstream VBUS reading was
+5.174 V. White at 200 had previously shifted red/orange and recovered only
+after reducing the test level to 64; 225 and 255 also failed. This is evidence
+of a sustained-load limit somewhere in the prototype's downstream power path
+even though voltage at the upstream FNB58 remained stable. Do not raise
+`BRIGHTNESS_CAP` above 175 on the breadboard. [PCB.md](PCB.md) records the
+complete measurement baseline and the remaining USB-C power decision.
 
 ### Mac visualization preview
 
@@ -222,12 +222,12 @@ In addition to the parts already listed, the USB bridge needs:
 - one bulk electrolytic capacitor, start with 470 microfarads rated for at
   least 6.3 V;
 - a way to make reliable connections to the headerless boards: normally two
-  12-pin 0.1-inch male headers for the Pro Micro and one 16-pin header for the
-  LCD, soldered in place;
+  12-pin 0.1-inch male headers for the Pro Micro, soldered in place;
 - one 3.5 mm TRS stereo jack breakout and a male-to-male TRS cable, four
   100 kilohm resistors, and two 10 microfarad coupling capacitors;
-- one 10 kilohm trimmer for LCD contrast and one approximately 100 ohm LCD
-  backlight resistor.
+- one 5 V, HD44780-compatible 16x2 LCD with a soldered PCF8574T I2C backpack;
+  and
+- one four-channel, bidirectional 3.3 V-to-5 V logic-level converter.
 
 No larger controller or extra interface board is required. Keep the USB data
 wires short; a solderless breadboard may be electrically marginal at USB full
@@ -257,35 +257,43 @@ Schottky diode, so the RP2040, display, and Moonlander would share the fuse and
 the Moonlander would receive about 4.8 V. Put the 470 microfarad bulk capacitor
 between the USB-A VCC row and GND near the connector: capacitor positive to
 VCC, negative stripe to GND. The firmware requests 500 mA from the upstream USB
-hub and caps keyboard brightness to reduce LED current spikes. The prototype
-held about 4.99 V at the downstream connector during bring-up, but that
-measurement is not a guarantee for other hubs or wiring. Do not connect the
-Moonlander to another power source at the same time, and do not add capacitors
-to D+ or D-.
+hub and caps keyboard brightness to reduce LED current spikes. The final
+serial-LCD breadboard test nevertheless peaked at 0.724 A under the diagnostic
+all-white load, so the 500 mA declaration does not close the future PCB's
+upstream power contract. The prototype held about 4.99 V at the downstream
+connector during bring-up, but that measurement is not a guarantee for other
+hubs or wiring. Do not connect the Moonlander to another power source at the
+same time, and do not add capacitors to D+ or D-.
 
-### QC1602A liquid-crystal display
+### PCF8574 serial liquid-crystal display
 
-The display uses 4-bit mode. **GPIO** means general-purpose input/output pin.
+The revision-A prototype uses a PCF8574T backpack rather than the retired
+six-wire parallel LCD connection. **I2C** (Inter-Integrated Circuit) is the
+two-wire serial bus: SDA carries data and SCL carries the clock. **GPIO** means
+general-purpose input/output pin.
 
-| LCD pin | Name | Connection |
-|---:|---|---|
-| 1 | VSS | GND |
-| 2 | VDD | `+` (about 4.8 V) |
-| 3 | VO | 10 kilohm trimmer wiper; trimmer ends to `+` and GND |
-| 4 | RS | GPIO2 |
-| 5 | R/W | GND |
-| 6 | E | GPIO3 |
-| 7–10 | D0–D3 | not connected |
-| 11 | D4 | GPIO4 |
-| 12 | D5 | GPIO5 |
-| 13 | D6 | GPIO6 |
-| 14 | D7 | GPIO7 |
-| 15 | A / LED+ | `+` through approximately 100 ohms |
-| 16 | K / LED- | GND |
+The RP2040 pins are not tolerant of 5 V logic. Put a bidirectional logic-level
+converter between the 3.3 V RP2040 bus and the 5 V backpack:
 
-The LCD is powered near 5 V but receives 3.3 V logic. That commonly works with
-HD44780-compatible modules; test this display before considering any level
-shifter, so the first build stays minimal.
+| Connection | Low-voltage side | High-voltage side |
+|---|---|---|
+| Converter power | `LV` to Pro Micro `3V3` | `HV` to the 5 V rail |
+| Ground | `LV GND` to digital GND | `HV GND` to the same digital GND |
+| SDA | GPIO2 to `LV1` | `HV1` to LCD `SDA` |
+| SCL | GPIO3 to `LV2` | `HV2` to LCD `SCL` |
+| LCD power | — | LCD `VCC` to 5 V; LCD `GND` to digital GND |
+
+Leave converter channels 3 and 4 unused. Use the digital ground rail shared
+with the USB breakout rather than adding the display return beside the analog
+TRS return. The backpack supplies its own contrast trimmer and backlight
+circuit, so the old external 10 kilohm trimmer and 100 ohm resistor are not
+used.
+
+The tested Teyleten Robot module responds at address `0x27` with the common
+backpack mapping P0=RS, P2=enable, P3=backlight, and P4 through P7=D4 through
+D7. Firmware also probes `0x3F`, runs the bus at 100 kHz, and updates only LCD
+cells whose contents changed. This retained approximately 30 completed RGB
+frames per second with no continuously missed audio buffers during FLOW.
 
 In `FLOW` and `SPECTRUM`, row 0 shows a mirrored stereo frequency spectrum:
 bass is at the outside edges and treble meets at the center. In the other

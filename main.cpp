@@ -7,7 +7,7 @@
 //   - PULSE:    kick-driven whole-board breath, slow hue rotation
 //   - VU:       smoothed stereo bottom-to-top meters
 //   - IDLE:     slow aurora, also shown when the mixer is silent
-// Plus: QC1602A LCD (spectrum or stereo VU, mode/fps status),
+// Plus: PCF8574-backed 16x2 LCD (spectrum or stereo VU, mode/fps status),
 //       tactile mode button (short = next, long = previous).
 
 #include <algorithm>
@@ -19,6 +19,7 @@
 
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
+#include "hardware/i2c.h"
 #include "hardware/sync.h"
 #include "hardware/timer.h"
 
@@ -27,6 +28,7 @@
 #include "landerviz/effects.h"
 #include "landerviz/flow_v3_engine.h"
 #include "landerviz/moonlander_map.h"
+#include "landerviz/pcf8574_lcd.h"
 #ifdef LANDERVIZ_POWER_TEST
 #include "landerviz/power_test.h"
 #endif
@@ -39,12 +41,9 @@
 
 #define AUDIO_ADC_LEFT_PIN  26    // GPIO26 = ADC0, mixer left (biased, see README)
 #define AUDIO_ADC_RIGHT_PIN 27    // GPIO27 = ADC1, mixer right (biased, see README)
-#define LCD_RS          2
-#define LCD_EN          3
-#define LCD_D4          4
-#define LCD_D5          5
-#define LCD_D6          6
-#define LCD_D7          7
+#define LCD_SDA_PIN     2
+#define LCD_SCL_PIN     3
+#define LCD_I2C_HZ      100000
 #define BUTTON_PIN      8         // tactile switch: diagonal pins, GPIO -> GND, internal pull-up
 
 #define NUM_KEYS        72        // Moonlander total; mapping is pinned in moonlander_map.h
@@ -112,44 +111,116 @@ static void board_show() {
 }
 
 // ---------------------------------------------------------------------------
-// HD44780 LCD, 4-bit mode (QC1602A, 16x2)
+// HD44780 LCD through a PCF8574 I2C backpack, 4-bit mode (16x2)
 // ---------------------------------------------------------------------------
 
-static void lcd_pulse_en() {
-    gpio_put(LCD_EN, 1);
-    sleep_us(1);
-    gpio_put(LCD_EN, 0);
-    sleep_us(50);
+static uint8_t lcd_i2c_address = 0;
+static bool lcd_present = false;
+static bool lcd_cgram_selected = false;
+static uint8_t lcd_buffer_cursor = 0;
+static std::array<uint8_t, LV_LCD_CELL_COUNT> lcd_desired = {};
+static std::array<uint8_t, LV_LCD_CELL_COUNT> lcd_shadow = {};
+
+static bool lcd_write_expander(const uint8_t *bytes, size_t count) {
+    if (!lcd_present) return false;
+    const int written = i2c_write_timeout_us(
+        i2c1, lcd_i2c_address, bytes, count, false, 2000);
+    // A complete LCD byte occupies about 0.6 ms at 100 kHz. Service the
+    // upstream keyboard device between bytes so display refreshes do not turn
+    // into typing latency.
+    usb_bridge_device_task();
+    return written == static_cast<int>(count);
 }
 
 static void lcd_write_nibble(uint8_t n, bool rs) {
-    gpio_put(LCD_RS, rs);
-    gpio_put(LCD_D4, (n >> 0) & 1);
-    gpio_put(LCD_D5, (n >> 1) & 1);
-    gpio_put(LCD_D6, (n >> 2) & 1);
-    gpio_put(LCD_D7, (n >> 3) & 1);
-    lcd_pulse_en();
+    const uint8_t bytes[] = {
+        lv_pcf8574_encode_nibble(n, rs, false),
+        lv_pcf8574_encode_nibble(n, rs, true),
+        lv_pcf8574_encode_nibble(n, rs, false),
+    };
+    lcd_write_expander(bytes, sizeof(bytes));
+}
+
+static bool lcd_write_byte(uint8_t value, bool rs) {
+    const auto bytes = lv_pcf8574_encode_byte(value, rs);
+    return lcd_write_expander(bytes.data(), bytes.size());
+}
+
+static bool lcd_hw_cmd(uint8_t c) {
+    const bool written = lcd_write_byte(c, false);
+    sleep_us(60);
+    return written;
+}
+
+static bool lcd_hw_data(uint8_t c) {
+    const bool written = lcd_write_byte(c, true);
+    sleep_us(60);
+    return written;
 }
 
 static void lcd_cmd(uint8_t c) {
-    lcd_write_nibble(c >> 4, false);
-    lcd_write_nibble(c & 0x0F, false);
-    sleep_us(60);
+    lcd_hw_cmd(c);
+    if (c == 0x01) {
+        lcd_desired.fill(' ');
+        lcd_shadow.fill(' ');
+        lcd_buffer_cursor = 0;
+        lcd_cgram_selected = false;
+    } else if ((c & 0xC0u) == 0x40u) {
+        lcd_cgram_selected = true;
+    }
 }
 
 static void lcd_data(uint8_t c) {
-    lcd_write_nibble(c >> 4, true);
-    lcd_write_nibble(c & 0x0F, true);
-    sleep_us(60);
+    if (lcd_cgram_selected) {
+        lcd_hw_data(c);
+        return;
+    }
+    if (lcd_buffer_cursor < LV_LCD_CELL_COUNT) {
+        lcd_desired[lcd_buffer_cursor++] = c;
+    }
+}
+
+static void lcd_flush() {
+    if (!lcd_present) return;
+
+    lv_lcd_dirty_run_t run{};
+    uint8_t from = 0;
+    while (lv_lcd_next_dirty_run(lcd_desired, lcd_shadow, from, &run)) {
+        const uint8_t row = run.begin / LV_LCD_COLUMNS;
+        const uint8_t col = run.begin % LV_LCD_COLUMNS;
+        const uint8_t address = static_cast<uint8_t>(
+            0x80u + (row == 0 ? 0x00u : 0x40u) + col);
+        if (!lcd_hw_cmd(address)) return;
+        for (uint8_t cell = run.begin; cell < run.end; ++cell) {
+            if (!lcd_hw_data(lcd_desired[cell])) return;
+            lcd_shadow[cell] = lcd_desired[cell];
+        }
+        from = run.end;
+    }
 }
 
 static void lcd_init() {
-    for (int p : {LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7}) {
-        gpio_init(p);
-        gpio_set_dir(p, GPIO_OUT);
-        gpio_put(p, 0);
-    }
+    lcd_desired.fill(' ');
+    lcd_shadow.fill(0xFF);
+    i2c_init(i2c1, LCD_I2C_HZ);
+    gpio_set_function(LCD_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(LCD_SCL_PIN, GPIO_FUNC_I2C);
     sleep_ms(50);
+
+    const uint8_t idle = LV_PCF8574_BACKLIGHT;
+    for (const uint8_t candidate : LV_PCF8574_ADDRESS_CANDIDATES) {
+        const int written = i2c_write_timeout_us(
+            i2c1, candidate, &idle, 1, false, 2000);
+        usb_bridge_device_task();
+        if (written == 1) {
+            lcd_i2c_address = candidate;
+            lcd_present = true;
+            break;
+        }
+    }
+
+    if (!lcd_present) return;
+
     // 4-bit init dance
     lcd_write_nibble(0x03, false); sleep_ms(5);
     lcd_write_nibble(0x03, false); sleep_us(150);
@@ -190,7 +261,10 @@ static void lcd_load_spectrum_chars() {
 }
 
 static void lcd_set_cursor(uint8_t col, uint8_t row) {
-    lcd_cmd(0x80 + (row ? 0x40 : 0x00) + col);
+    lcd_cgram_selected = false;
+    lcd_buffer_cursor = static_cast<uint8_t>(
+        std::min<uint16_t>(row * LV_LCD_COLUMNS + col,
+                           LV_LCD_CELL_COUNT));
 }
 
 static void lcd_print(const char* s) {
@@ -817,6 +891,7 @@ int main() {
     lcd_load_vu_chars();
     lcd_set_cursor(0, 0); lcd_print(BOOT_LINE0);
     lcd_set_cursor(0, 1); lcd_print(BOOT_LINE1);
+    lcd_flush();
     sleep_ms(1200);
     lcd_cmd(0x01); sleep_ms(2);
     if (calibration_pressed_at_start && !gpio_get(BUTTON_PIN)) {
@@ -907,6 +982,7 @@ int main() {
         if (now - last_lcd_ms >= LCD_REFRESH_MS) {
             last_lcd_ms = now;
             lcd_status(now, fps);
+            lcd_flush();
         }
     }
 }

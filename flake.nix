@@ -307,6 +307,20 @@
           touch "$out"
         '';
       };
+      "pcf8574-lcd-core" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-pcf8574-lcd-core";
+        version = "0.1.0";
+        src = self;
+        dontConfigure = true;
+        buildPhase = ''
+          $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
+            tests/pcf8574_lcd_test.cpp -o pcf8574_lcd_test
+          ./pcf8574_lcd_test
+        '';
+        installPhase = ''
+          touch "$out"
+        '';
+      };
     });
 
     devShells = forAllSystems (system: let

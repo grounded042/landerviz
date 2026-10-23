@@ -31,3 +31,11 @@ target_include_directories(landerviz_power_test_test PRIVATE ../include)
 target_compile_features(landerviz_power_test_test PRIVATE cxx_std_17)
 target_compile_options(landerviz_power_test_test PRIVATE -Wall -Wextra -Werror)
 add_test(NAME landerviz_power_test_test COMMAND landerviz_power_test_test)
+
+add_executable(landerviz_pcf8574_lcd_test
+  pcf8574_lcd_test.cpp
+)
+target_include_directories(landerviz_pcf8574_lcd_test PRIVATE ../include)
+target_compile_features(landerviz_pcf8574_lcd_test PRIVATE cxx_std_17)
+target_compile_options(landerviz_pcf8574_lcd_test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME landerviz_pcf8574_lcd_test COMMAND landerviz_pcf8574_lcd_test)
