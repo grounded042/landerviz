@@ -58,6 +58,9 @@ nix flake check
 nix build .#rp2040 -o result-rp2040
 nix build .#moonlander -o result-moonlander
 nix build .#preview -o result-preview
+nix build .#power-capture -o result-power-capture
+nix build .#rp2040-power-test -o result-rp2040-power-test
+nix build .#moonlander-power-test -o result-moonlander-power-test
 ```
 
 Artifacts:
@@ -66,9 +69,59 @@ Artifacts:
 - `result-moonlander/zsa_moonlander_reva_landerviz.bin` — Moonlander revision-A
   firmware based on Oryx layout `z9wlG`, revision `ARDpK`
 - `result-preview/bin/landerviz-preview` — development-only Mac visualizer
+- `result-power-capture/bin/landerviz-power-capture` — FNIRSI FNB58 power
+  measurement logger
+- `result-rp2040-power-test/landerviz.uf2` — manual all-white power-test
+  controller firmware
+- `result-moonlander-power-test/zsa_moonlander_reva_landerviz.bin` — matching
+  Moonlander revision-A diagnostic firmware with its receive cap raised to 255
 
 `nix develop` provides the pinned build tools for manual CMake work. The actual
 build board name is `sparkfun_promicro`; the flake already supplies it.
+
+### USB power capture
+
+The development-only power logger reads an FNIRSI FNB58 through its separate
+micro-USB `PC` port while the meter remains inline between the powered hub and
+LanderViz. **HID** (Human Interface Device) is used here only as the meter's
+driver-free USB data transport. The tool reports the lowest measured USB bus
+voltage and the average and highest current and power. It can also retain every
+sample as a **CSV** (comma-separated values) file for later inspection.
+
+```sh
+nix run .#power-capture -- --duration 30
+nix run .#power-capture -- --duration 30 --csv /tmp/landerviz-power.csv
+```
+
+Leave the FNB58 `PD` communication switch off. The logger implements only the
+meter's initialization and measurement-poll commands; it has no fast-charge or
+voltage-trigger feature. Its USB measurement protocol is based on the
+independently documented [OpenFNB58 protocol](https://github.com/yeckel/OpenFNB58).
+
+#### Controlled maximum-light test
+
+The power-test artifacts are measurement tools, not production firmware. Flash
+the diagnostic Moonlander image first, then the diagnostic RP2040 image. The
+keyboard starts black after the USB bridge connects. A short press on the
+external mode button advances all keys through white levels 0, 64, 128, 175,
+200, 225, and 255; a press held longer than 800 milliseconds moves down one
+level. The LCD always shows the commanded level. A controller reset returns to
+black.
+
+Run the FNB58 logger during the test and advance only after checking the prior
+plateau. Stop if USB disconnects, the keyboard resets or flickers, or its supply
+voltage becomes marginal. Restore the ordinary `moonlander` and `rp2040`
+artifacts after measurement; they retain the production cap of 175.
+
+The 2026-10-22 breadboard test validated 175 as the production limit. A
+five-minute, all-white soak at 175 averaged 0.708 A and 3.663 W; current varied
+by less than 2 mA and the lowest upstream VBUS reading was 5.174 V. White at
+200 eventually shifted red/orange and recovered only after reducing the test
+level to 64; 225 and 255 also failed. This is evidence of a sustained-load
+limit somewhere in the prototype's downstream power path even though voltage
+at the upstream FNB58 remained stable. Do not raise `BRIGHTNESS_CAP` above 175
+on the breadboard. [PCB.md](PCB.md) records the complete measurement baseline
+and the remaining USB-C power decision.
 
 ### Mac visualization preview
 

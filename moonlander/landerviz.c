@@ -4,7 +4,9 @@
 #include "protocol.h"
 #include "raw_hid.h"
 
-#define LANDERVIZ_BRIGHTNESS_CAP 175
+#ifndef LANDERVIZ_BRIGHTNESS_CAP
+#    define LANDERVIZ_BRIGHTNESS_CAP 175
+#endif
 #define LANDERVIZ_TIMEOUT_MS 500
 
 static lv_decoder_t decoder;

@@ -22,3 +22,12 @@ target_compile_definitions(landerviz_protocol_test PRIVATE
 )
 target_compile_options(landerviz_protocol_test PRIVATE -Wall -Wextra -Werror)
 add_test(NAME landerviz_protocol_test COMMAND landerviz_protocol_test)
+
+add_executable(landerviz_power_test_test
+  power_test_test.cpp
+  ../src/power_test.cpp
+)
+target_include_directories(landerviz_power_test_test PRIVATE ../include)
+target_compile_features(landerviz_power_test_test PRIVATE cxx_std_17)
+target_compile_options(landerviz_power_test_test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME landerviz_power_test_test COMMAND landerviz_power_test_test)

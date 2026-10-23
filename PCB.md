@@ -243,8 +243,48 @@ same cases on the assembled PCB:
 The meter cannot prove extremely short electrical spikes. If its recorded
 curve shows material voltage sag, unstable enumeration, or insufficient margin,
 repeat the suspect transition with a faster instrument before selecting the
-power-path ratings. The prototype's approximately 4.99 V downstream
-measurement demonstrates feasibility, not the complete power budget.
+power-path ratings.
+
+### RP2040 breadboard baseline — 2026-10-22
+
+The FNB58 sampled the complete system at approximately 100 samples per second
+between the powered Anker hub and LanderViz. These are upstream VBUS
+measurements; they do not measure the voltage after the prototype's underside
+VBUS pad, breadboard contacts, jumpers, or downstream USB breakout.
+
+| Case | Duration | Minimum VBUS | Average current | Peak current | Peak power |
+|---|---:|---:|---:|---:|---:|
+| Controller and parallel LCD, Moonlander disconnected | startup interval | — | approximately 0.040 A | — | — |
+| Moonlander connected, visualization idle | 30 s | 5.196 V | 0.262 A | 0.303 A | 1.573 W |
+| FLOW with music | 60 s | 5.196 V | 0.291 A | 0.371 A | 1.927 W |
+| Moonlander reconnection/startup | event | 5.177 V | — | 0.505 A | 2.615 W |
+| All 72 keys white at 175/255 | 300 s | 5.174 V | 0.708 A | 0.709 A | 3.668 W |
+
+The five-minute 175/255 white soak remained visually white and electrically
+flat. Its first minute averaged 0.7076 A and its last minute averaged 0.7082 A,
+with no meaningful thermal drift at the meter. This validates the existing
+firmware cap of 175 for the breadboard prototype's worst commanded frame.
+
+Higher settings are not usable on the prototype. All-white 200/255 eventually
+shifted red/orange; 225 and 255 did so as well. The keyboard recovered white
+only after the command was reduced to 64. Upstream VBUS remained stable, so
+the observation establishes a downstream sustained-load limit but does not by
+itself identify whether the limiting element was the Pro Micro VBUS path,
+breadboard wiring, USB breakout, cable, or Moonlander. Do not use 200 as a
+design target merely because it survived briefly during a stepped sweep.
+
+The 0.708 A worst-case measurement also exceeds the firmware's current 500 mA
+upstream USB declaration. Therefore this measurement closes the prototype
+brightness-cap question but does not close the revision-A power order blocker.
+Before schematic approval:
+
+- repeat the baseline with the frozen PCF8574T serial LCD and level translator;
+- decide how the upstream USB-C connection validly supplies the measured
+  worst case;
+- select the downstream switch, protection, traces, connectors, and cable path
+  with margin above the final measured load; and
+- repeat startup and five-minute 175/255 white tests on the assembled PCB while
+  also measuring downstream VBUS at the Moonlander connector.
 
 **VFD** means vacuum fluorescent display. VFD support is deferred to revision
 B or later because these displays can require substantially more operating and

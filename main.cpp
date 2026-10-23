@@ -27,6 +27,9 @@
 #include "landerviz/effects.h"
 #include "landerviz/flow_v3_engine.h"
 #include "landerviz/moonlander_map.h"
+#ifdef LANDERVIZ_POWER_TEST
+#include "landerviz/power_test.h"
+#endif
 #include "landerviz/usb_bridge.h"
 #include "landerviz/visualizer.h"
 
@@ -51,12 +54,19 @@
 #define LCD_REFRESH_MS  100       // 10 fps; the character LCD need not steal RGB frame time
 #define KEYBOARD_FRAME_US 33333   // 30 fps; Moonlander LED flush ceiling is ~38 fps
 
+#ifdef LANDERVIZ_POWER_TEST
+#define BOOT_LINE0      "POWER TEST"
+#define BOOT_LINE1      "starts black"
+#else
 #define BOOT_LINE0      "LANDERVIZ"
 #define BOOT_LINE1      "audio -> light"
+#endif
 
 // Global brightness cap — the QMK-side twin of the brownout plan.
 // Keeps LED current spikes inside what the Anker hub data port + bulk cap can do.
-#define BRIGHTNESS_CAP  175       // 0..255; never exceed the Moonlander's QMK cap
+#ifndef LANDERVIZ_BRIGHTNESS_CAP
+#define LANDERVIZ_BRIGHTNESS_CAP 175
+#endif
 
 // ---------------------------------------------------------------------------
 // Tiny RGB helpers
@@ -76,8 +86,13 @@ static RGB scale_rgb(RGB c, uint8_t k) {  // k 0..255
 // ---------------------------------------------------------------------------
 
 static RGB frame[NUM_KEYS];
+#ifndef LANDERVIZ_POWER_TEST
 static lv_visualizer_t visualizer = {};
+#endif
 static lv_flow_v3_engine_t flow_v3 = {};
+#ifdef LANDERVIZ_POWER_TEST
+static lv_power_test_t power_test = {};
+#endif
 
 struct runtime_metrics_t {
     uint32_t max_analysis_us;
@@ -91,7 +106,7 @@ static runtime_metrics_t runtime_metrics = {};
 static void board_show() {
     RGB capped[NUM_KEYS];
     for (int key = 0; key < NUM_KEYS; ++key) {
-        capped[key] = scale_rgb(frame[key], BRIGHTNESS_CAP);
+        capped[key] = scale_rgb(frame[key], LANDERVIZ_BRIGHTNESS_CAP);
     }
     usb_bridge_submit_frame(capped);
 }
@@ -469,17 +484,25 @@ static void poll_button() {
         stable = candidate;
         if (!stable) { press_ms = now; long_fired = false; }      // pressed
         else if (!long_fired) {                                   // released: short press
+#ifdef LANDERVIZ_POWER_TEST
+            lv_power_test_next(&power_test);
+#else
             mode = (lv_viz_mode_t)(
                 ((int)mode + 1) % (int)lv_viz_mode_t::COUNT);
             mode_announce_until_ms = now + 1000;
+#endif
         }
     }
     if (!stable && !long_fired && now - press_ms > 800) {         // long press
         long_fired = true;
+#ifdef LANDERVIZ_POWER_TEST
+        lv_power_test_previous(&power_test);
+#else
         mode = (lv_viz_mode_t)(
             ((int)mode + (int)lv_viz_mode_t::COUNT - 1) %
             (int)lv_viz_mode_t::COUNT);
         mode_announce_until_ms = now + 1000;
+#endif
     }
 }
 
@@ -590,6 +613,18 @@ static void update_input_diagnostic(uint32_t now_ms) {
 }
 
 static void lcd_status(uint32_t now_ms, int fps) {
+#ifdef LANDERVIZ_POWER_TEST
+    (void)now_ms;
+    (void)fps;
+    char line[17];
+    lcd_set_cursor(0, 0);
+    lcd_print("POWER TEST      ");
+    snprintf(line, sizeof(line), "WHITE %3u       ",
+             (unsigned int)lv_power_test_level(&power_test));
+    lcd_set_cursor(0, 1);
+    lcd_print(line);
+    return;
+#endif
     if (lcd_input_calibration(now_ms)) return;
     update_input_diagnostic(now_ms);
     const bool show_spectrum =
@@ -842,6 +877,9 @@ int main() {
                 last_render_us = render_us;
             }
             const uint32_t render_started_us = time_us_32();
+#ifdef LANDERVIZ_POWER_TEST
+            lv_power_test_render(&power_test, frame);
+#else
             if (mode == lv_viz_mode_t::FLOW && audio_present) {
                 lv_flow_v3_engine_render(
                     &flow_v3, now, frame, usb_bridge_device_task);
@@ -849,6 +887,7 @@ int main() {
                 lv_visualizer_render(&visualizer, mode, audio,
                                      audio_present, now, frame);
             }
+#endif
             board_show();
             runtime_metrics.max_render_us = std::max(
                 runtime_metrics.max_render_us,

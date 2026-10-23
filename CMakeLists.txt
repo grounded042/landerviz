@@ -8,6 +8,7 @@ include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 project(landerviz LANGUAGES C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
+option(LANDERVIZ_POWER_TEST "Build manual full-white power diagnostic" OFF)
 
 pico_sdk_init()
 
@@ -62,6 +63,13 @@ add_executable(landerviz
   src/usb_descriptors.cpp
   $ENV{PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
 )
+if(LANDERVIZ_POWER_TEST)
+  target_sources(landerviz PRIVATE src/power_test.cpp)
+  target_compile_definitions(landerviz PRIVATE
+    LANDERVIZ_POWER_TEST
+    LANDERVIZ_BRIGHTNESS_CAP=255
+  )
+endif()
 target_include_directories(landerviz PRIVATE include ${CMAKE_CURRENT_LIST_DIR})
 target_compile_definitions(landerviz PRIVATE
   LANDERVIZ_USE_CMSIS_DSP_Q15

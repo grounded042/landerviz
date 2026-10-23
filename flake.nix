@@ -81,73 +81,103 @@
       pkgs = pkgsFor system;
       toolchain = pkgs.gcc-arm-embedded;
       commonTools = [pkgs.cmake pkgs.ninja pkgs.gnumake pkgs.python3 pkgs.patch pkgs.clang toolchain];
+      mkRp2040 = {
+        pname,
+        powerTest ? false,
+      }:
+        pkgs.stdenvNoCC.mkDerivation {
+          inherit pname;
+          version = "0.1.0";
+          src = self;
+          # These are bare-metal artifacts, not host executables for Nix to fix up.
+          dontFixup = true;
+          nativeBuildInputs = commonTools ++ [pkgs.picotool];
+          PICO_SDK_PATH = "${pkgs.pico-sdk}/lib/pico-sdk";
+          PICO_PIO_USB_PATH = pico-pio-usb;
+          PICO_TINYUSB_PATH = tinyusb;
+          CMSIS_DSP_PATH = cmsis-dsp;
+          configurePhase = ''
+            runHook preConfigure
+            cmake -S . -B build -G Ninja \
+              -DPICO_BOARD=sparkfun_promicro \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_TESTING=OFF \
+              -DLANDERVIZ_POWER_TEST=${
+              if powerTest
+              then "ON"
+              else "OFF"
+            }
+            runHook postConfigure
+          '';
+          buildPhase = ''
+            runHook preBuild
+            cmake --build build
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out"
+            cp build/landerviz.uf2 build/landerviz.elf build/landerviz.bin "$out/"
+            runHook postInstall
+          '';
+        };
+      mkMoonlander = {
+        pname,
+        powerTest ? false,
+      }:
+        pkgs.stdenvNoCC.mkDerivation {
+          inherit pname;
+          version = "0.1.0";
+          src = self;
+          nativeBuildInputs = commonTools ++ [pkgs.git pkgs.qmk pkgs.which];
+          dontConfigure = true;
+          buildPhase = ''
+            runHook preBuild
+            cp -R ${zsa-qmk} qmk
+            chmod -R u+w qmk
+            mkdir -p qmk/lib/chibios qmk/lib/chibios-contrib qmk/lib/lufa qmk/lib/printf
+            cp -R ${chibios}/. qmk/lib/chibios/
+            cp -R ${chibios-contrib}/. qmk/lib/chibios-contrib/
+            cp -R ${lufa}/. qmk/lib/lufa/
+            cp -R ${qmk-printf}/. qmk/lib/printf/
+            mkdir -p qmk/modules/zsa
+            cp -R ${qmk-modules}/. qmk/modules/zsa/
+            keymap_dir=qmk/keyboards/zsa/moonlander/keymaps/landerviz
+            mkdir -p "$keymap_dir"
+            cp -R moonlander/oryx/. "$keymap_dir/"
+            cp moonlander/landerviz.c moonlander/landerviz.h "$keymap_dir/"
+            cp include/landerviz/protocol.h "$keymap_dir/protocol.h"
+            patch --fuzz=0 -d "$keymap_dir" -p1 < moonlander/oryx-ARDpK.patch
+            ${pkgs.lib.optionalString powerTest ''
+              patch --fuzz=0 -d "$keymap_dir" -p1 < moonlander/power-test.patch
+            ''}
+            make -C qmk zsa/moonlander/reva:landerviz
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out"
+            cp qmk/zsa_moonlander_reva_landerviz.bin "$out/"
+            runHook postInstall
+          '';
+        };
     in {
       default = self.packages.${system}.rp2040;
 
-      rp2040 = pkgs.stdenvNoCC.mkDerivation {
+      rp2040 = mkRp2040 {
         pname = "landerviz-rp2040";
-        version = "0.1.0";
-        src = self;
-        # These are bare-metal artifacts, not host executables for Nix to fix up.
-        dontFixup = true;
-        nativeBuildInputs = commonTools ++ [pkgs.picotool];
-        PICO_SDK_PATH = "${pkgs.pico-sdk}/lib/pico-sdk";
-        PICO_PIO_USB_PATH = pico-pio-usb;
-        PICO_TINYUSB_PATH = tinyusb;
-        CMSIS_DSP_PATH = cmsis-dsp;
-        configurePhase = ''
-          runHook preConfigure
-          cmake -S . -B build -G Ninja \
-            -DPICO_BOARD=sparkfun_promicro \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF
-          runHook postConfigure
-        '';
-        buildPhase = ''
-          runHook preBuild
-          cmake --build build
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          mkdir -p "$out"
-          cp build/landerviz.uf2 build/landerviz.elf build/landerviz.bin "$out/"
-          runHook postInstall
-        '';
+      };
+      "rp2040-power-test" = mkRp2040 {
+        pname = "landerviz-rp2040-power-test";
+        powerTest = true;
       };
 
-      moonlander = pkgs.stdenvNoCC.mkDerivation {
+      moonlander = mkMoonlander {
         pname = "landerviz-moonlander";
-        version = "0.1.0";
-        src = self;
-        nativeBuildInputs = commonTools ++ [pkgs.git pkgs.qmk pkgs.which];
-        dontConfigure = true;
-        buildPhase = ''
-          runHook preBuild
-          cp -R ${zsa-qmk} qmk
-          chmod -R u+w qmk
-          mkdir -p qmk/lib/chibios qmk/lib/chibios-contrib qmk/lib/lufa qmk/lib/printf
-          cp -R ${chibios}/. qmk/lib/chibios/
-          cp -R ${chibios-contrib}/. qmk/lib/chibios-contrib/
-          cp -R ${lufa}/. qmk/lib/lufa/
-          cp -R ${qmk-printf}/. qmk/lib/printf/
-          mkdir -p qmk/modules/zsa
-          cp -R ${qmk-modules}/. qmk/modules/zsa/
-          keymap_dir=qmk/keyboards/zsa/moonlander/keymaps/landerviz
-          mkdir -p "$keymap_dir"
-          cp -R moonlander/oryx/. "$keymap_dir/"
-          cp moonlander/landerviz.c moonlander/landerviz.h "$keymap_dir/"
-          cp include/landerviz/protocol.h "$keymap_dir/protocol.h"
-          patch --fuzz=0 -d "$keymap_dir" -p1 < moonlander/oryx-ARDpK.patch
-          make -C qmk zsa/moonlander/reva:landerviz
-          runHook postBuild
-        '';
-        installPhase = ''
-          runHook preInstall
-          mkdir -p "$out"
-          cp qmk/zsa_moonlander_reva_landerviz.bin "$out/"
-          runHook postInstall
-        '';
+      };
+      "moonlander-power-test" = mkMoonlander {
+        pname = "landerviz-moonlander-power-test";
+        powerTest = true;
       };
 
       preview = pkgs.stdenv.mkDerivation {
@@ -182,6 +212,33 @@
           runHook postInstall
         '';
       };
+
+      "power-capture" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-power-capture";
+        version = "0.1.0";
+        src = self;
+        nativeBuildInputs = [pkgs.pkg-config];
+        buildInputs = [pkgs.hidapi];
+        dontConfigure = true;
+        buildPhase = ''
+          runHook preBuild
+          $CXX -std=c++17 -O2 -Wall -Wextra -Werror -Itools \
+            tools/power_capture.cpp \
+            $(pkg-config --cflags --libs ${
+            if pkgs.stdenv.hostPlatform.isLinux
+            then "hidapi-hidraw"
+            else "hidapi"
+          }) \
+            -o landerviz-power-capture
+          runHook postBuild
+        '';
+        installPhase = ''
+          runHook preInstall
+          mkdir -p "$out/bin"
+          cp landerviz-power-capture "$out/bin/"
+          runHook postInstall
+        '';
+      };
     });
 
     apps = forAllSystems (system: {
@@ -189,6 +246,11 @@
         type = "app";
         program = "${self.packages.${system}.preview}/bin/landerviz-preview";
         meta.description = "Preview LanderViz effects with generated or recorded audio";
+      };
+      "power-capture" = {
+        type = "app";
+        program = "${self.packages.${system}."power-capture"}/bin/landerviz-power-capture";
+        meta.description = "Capture FNIRSI FNB58 power measurements and report extrema";
       };
     });
 
@@ -212,7 +274,39 @@
         '';
       };
       rp2040 = self.packages.${system}.rp2040;
+      "rp2040-power-test" = self.packages.${system}."rp2040-power-test";
       moonlander = self.packages.${system}.moonlander;
+      "moonlander-power-test" = self.packages.${system}."moonlander-power-test";
+      "power-capture" = self.packages.${system}."power-capture";
+      "power-capture-tests" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-power-capture-tests";
+        version = "0.1.0";
+        src = self;
+        dontConfigure = true;
+        buildPhase = ''
+          $CXX -std=c++17 -Wall -Wextra -Werror \
+            tests/fnb58_capture_test.cpp -o fnb58_capture_test
+          ./fnb58_capture_test
+        '';
+        installPhase = ''
+          touch "$out"
+        '';
+      };
+      "power-test-core" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-power-test-core";
+        version = "0.1.0";
+        src = self;
+        dontConfigure = true;
+        buildPhase = ''
+          $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
+            tests/power_test_test.cpp src/power_test.cpp \
+            -o power_test_test
+          ./power_test_test
+        '';
+        installPhase = ''
+          touch "$out"
+        '';
+      };
     });
 
     devShells = forAllSystems (system: let
@@ -232,6 +326,7 @@
           pkgs.python3
           pkgs.SDL2
           pkgs.ffmpeg
+          pkgs.hidapi
         ];
         PICO_SDK_PATH = "${pkgs.pico-sdk}/lib/pico-sdk";
         PICO_PIO_USB_PATH = pico-pio-usb;

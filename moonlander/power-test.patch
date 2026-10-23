@@ -1,0 +1,9 @@
+--- a/rules.mk
++++ b/rules.mk
+@@ -6,3 +6,6 @@
+ TAP_DANCE_ENABLE = yes
+ SPACE_CADET_ENABLE = no
+ SRC += landerviz.c
++
++# Diagnostic build only: allow the controller's measured 0..255 white sweep.
++OPT_DEFS += -DLANDERVIZ_BRIGHTNESS_CAP=255
