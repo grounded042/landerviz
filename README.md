@@ -18,7 +18,7 @@ specifically for **revision A**.
 Moonlander -- downstream USB --> Pro Micro RP2040 -- upstream USB --> hub --> Mac
      ^                           |  host toward keyboard; device toward Mac
      |                           +-- stereo ADC + FFT
-     +---------- RGB frames -----+-- LCD + mode button
+     +---------- RGB frames -----+-- LCD + rotary encoder
 ```
 
 - **HID** (Human Interface Device) is the standard USB keyboard/mouse protocol.
@@ -60,6 +60,7 @@ nix build .#moonlander -o result-moonlander
 nix build .#preview -o result-preview
 nix build .#power-capture -o result-power-capture
 nix build .#rp2040-power-test -o result-rp2040-power-test
+nix build .#rp2040-encoder-test -o result-rp2040-encoder-test
 nix build .#moonlander-power-test -o result-moonlander-power-test
 ```
 
@@ -73,6 +74,8 @@ Artifacts:
   measurement logger
 - `result-rp2040-power-test/landerviz.uf2` — manual all-white power-test
   controller firmware
+- `result-rp2040-encoder-test/landerviz.uf2` — rotary encoder wiring and
+  transition diagnostic
 - `result-moonlander-power-test/zsa_moonlander_reva_landerviz.bin` — matching
   Moonlander revision-A diagnostic firmware with its receive cap raised to 255
 
@@ -103,7 +106,7 @@ independently documented [OpenFNB58 protocol](https://github.com/yeckel/OpenFNB5
 The power-test artifacts are measurement tools, not production firmware. Flash
 the diagnostic Moonlander image first, then the diagnostic RP2040 image. The
 keyboard starts black after the USB bridge connects. A short press on the
-external mode button advances all keys through white levels 0, 64, 128, 175,
+encoder knob advances all keys through white levels 0, 64, 128, 175,
 200, 225, and 255; a press held longer than 800 milliseconds moves down one
 level. The LCD always shows the commanded level. A controller reset returns to
 black.
@@ -302,12 +305,26 @@ meters), peak hold, and `!` on clipping. Row 1 shows the mode and completed USB
 RGB frames per second. It counts only full eight-packet frames delivered to the
 Moonlander, rather than visualizer loop calls.
 
-### Mode button
+### Rotary encoder and menu
 
-Connect GPIO8 to one corner of the tactile switch and GND to the diagonally
-opposite corner. Firmware enables the internal pull-up resistor and applies a
-30 ms debounce. A short press selects the next mode; holding longer than 800 ms
-selects the previous mode.
+The validated EC11 rotary encoder uses GPIO4 for A, GPIO5 for B, and GPIO8 for
+the push switch. Connect the middle pin on its three-pin side (the encoder
+common) to digital GND. Connect either push-switch pin to GPIO8 and the other
+to digital GND. All three inputs use the RP2040's internal pull-up resistors;
+do not connect the encoder to 3.3 V or 5 V.
+
+Clockwise rotation selects the next visualization and counterclockwise selects
+the previous one. A short press cycles three vivid color schemes remembered
+separately for each visualization until reboot. A press held longer than 800
+ms opens the menu. Turn to select `DIAGNOSTICS`, `CALIBRATE INPUT`, or `EXIT`;
+short-press to select. In diagnostics, turning selects the audio, gain, FLOW,
+performance, and USB pages. Short-press returns to the menu and long-press
+returns directly home.
+
+The `rp2040-encoder-test` artifact shows raw A/B states, push-switch state,
+position, direction, and rejected transitions. The installed encoder was
+validated at exactly one count per detent in either direction with zero
+rejected transitions.
 
 ### Mixer stereo audio to ADC0 and ADC1
 
@@ -360,9 +377,9 @@ and LCD return current out of the sensitive audio wiring:
 
 - The audio rail connects the TRS sleeve, the bottom 100 kilohm resistor of
   each bias divider, and one Pro Micro GND pin.
-- The digital rail connects USB-A GND, bulk-capacitor negative, LCD VSS, LCD
-  LED-, the contrast trimmer's ground end, the button, and the other Pro Micro
-  GND pin.
+- The digital rail connects USB-A GND, bulk-capacitor negative, the LCD and
+  level-converter grounds, the encoder common and push switch, and the other
+  Pro Micro GND pin.
 
 Both Pro Micro GND pins are internally the same electrical node. This is
 `star-ground` routing: the two current paths meet at the controller instead of
@@ -461,32 +478,31 @@ the broadband floor. Opening still requires three consecutive analysis frames,
 and a half-second close hold bridges gaps between notes without leaving paused
 audio visibly active.
 
-To calibrate the current input hardware, pause audio, hold the external mode
-button while LanderViz boots, and keep holding it through the 1.2-second splash.
-Release when the LCD says `RELEASE BUTTON`; `SILENCE` then counts through a
-three-second measurement while USB service continues. `CALIBRATION OK` reports
-the accepted broadband floor. `CALIBRATION BAD` means the input varied too much
-and should be retried with audio paused. Calibration is deliberately RAM-only
-in this validation build and therefore does not survive a reboot.
+To calibrate the current input hardware, pause audio and select
+`CALIBRATE INPUT` from the encoder menu. Holding the encoder button throughout
+the 1.2-second boot splash remains a startup shortcut. `SILENCE` counts through
+a three-second measurement while USB service continues. `CALIBRATION OK`
+reports the accepted broadband floor. `CALIBRATION BAD` means the input varied
+too much and should be retried with audio paused. Calibration is deliberately
+RAM-only in this validation build and therefore does not survive a reboot.
 
-For audio-input calibration, set `AUDIO_CALIBRATION_DISPLAY` to `1` in
-`main.cpp`. The three profiling pages are temporarily replaced with four
-diagnostic pages:
+The menu's five diagnostic pages expose:
 
-- `RMS L-36 R-38`: the largest pre-gain RMS level in the latest one-second
-  measurement window, in dBFS;
-- `PEAK L-18 R-20`: the largest pre-gain sample peak in that window; and
-- `GAIN 6.3 N-51O`: adaptive gain, calibrated physical-input noise floor, and
-  whether its gate is open (`O`) or closed (`C`); and
-- `B123>456 M000`: the one-second maximum FLOW raw bass and rendered body on a
-  0–999 scale, followed by missed analysis windows.
+- Audio: largest pre-gain RMS and peak levels in the latest one-second window,
+  in decibels relative to full scale (dBFS).
+- Gain: adaptive gain, calibrated physical-input noise floor, and whether its
+  gate is open (`O`) or closed (`C`).
+- FLOW: one-second maximum raw bass and rendered body on a 0–999 scale, plus
+  missed analysis windows.
+- Performance: completed RGB frames per second plus maximum analysis and
+  rendering time in tenths of a millisecond.
+- USB: current host status plus maximum device-task, host-task, and keyboard
+  forwarding intervals in tenths of a millisecond.
 
 The input readings divide out `AUDIO_INPUT_GAIN`, so they describe the voltage
 that actually reached the ADC rather than either visualization gain. Wait at
 least two seconds after changing volume, then record the typical readings over
-the same repeatable passage. A full five-page rotation takes ten seconds. Set
-`AUDIO_CALIBRATION_DISPLAY` back to `0` to restore the normal performance
-pages.
+the same repeatable passage.
 
 ## Safe bring-up order
 
@@ -499,7 +515,7 @@ pages.
    breadboard circuit attached.
 4. Remove power, mount the headers and breadboard wiring, then check the 5 V,
    3.3 V, ground, and USB wiring for shorts.
-5. With the Moonlander disconnected, test the button and LCD separately.
+5. With the Moonlander disconnected, test the encoder and LCD separately.
 6. Add the stereo audio inputs and begin with the mixer output level down.
 7. Check the USB data and power wiring once more, connect the Moonlander last,
    and validate typing before enabling visualization frames.

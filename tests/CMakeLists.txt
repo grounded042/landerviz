@@ -48,3 +48,21 @@ target_include_directories(landerviz_encoder_test PRIVATE ../include)
 target_compile_features(landerviz_encoder_test PRIVATE cxx_std_17)
 target_compile_options(landerviz_encoder_test PRIVATE -Wall -Wextra -Werror)
 add_test(NAME landerviz_encoder_test COMMAND landerviz_encoder_test)
+
+add_executable(landerviz_controls_test
+  controls_test.cpp
+  ../src/controls.cpp
+)
+target_include_directories(landerviz_controls_test PRIVATE ../include)
+target_compile_features(landerviz_controls_test PRIVATE cxx_std_17)
+target_compile_options(landerviz_controls_test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME landerviz_controls_test COMMAND landerviz_controls_test)
+
+add_executable(landerviz_color_scheme_test
+  color_scheme_test.cpp
+  ../src/color_scheme.cpp
+)
+target_include_directories(landerviz_color_scheme_test PRIVATE ../include)
+target_compile_features(landerviz_color_scheme_test PRIVATE cxx_std_17)
+target_compile_options(landerviz_color_scheme_test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME landerviz_color_scheme_test COMMAND landerviz_color_scheme_test)

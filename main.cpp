@@ -7,8 +7,8 @@
 //   - PULSE:    kick-driven whole-board breath, slow hue rotation
 //   - VU:       smoothed stereo bottom-to-top meters
 //   - IDLE:     slow aurora, also shown when the mixer is silent
-// Plus: PCF8574-backed 16x2 LCD (spectrum or stereo VU, mode/fps status),
-//       tactile mode button (short = next, long = previous).
+// Plus: PCF8574-backed 16x2 LCD (spectrum or stereo VU, menus/status),
+//       EC11 rotary encoder with push switch.
 
 #include <algorithm>
 #include <cmath>
@@ -25,10 +25,10 @@
 
 #include "landerviz/audio_analysis.h"
 #include "landerviz/audio_buffer.h"
+#include "landerviz/color_scheme.h"
+#include "landerviz/controls.h"
 #include "landerviz/effects.h"
-#ifdef LANDERVIZ_ENCODER_TEST
 #include "landerviz/encoder.h"
-#endif
 #include "landerviz/flow_v3_engine.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/pcf8574_lcd.h"
@@ -49,12 +49,11 @@
 #define LCD_I2C_HZ      100000
 #define ENCODER_A_PIN   4
 #define ENCODER_B_PIN   5
-#define BUTTON_PIN      8         // tactile switch: diagonal pins, GPIO -> GND, internal pull-up
+#define BUTTON_PIN      8         // encoder push switch to GND, internal pull-up
 
 #define NUM_KEYS        72        // Moonlander total; mapping is pinned in moonlander_map.h
 #define SAMPLE_HZ       15625     // Per channel; 61 capture windows/s, ~30 analyses/s
 #define AUDIO_INPUT_GAIN 8.0f     // Passive mixer compensation; +18 dB visualization gain
-#define AUDIO_CALIBRATION_DISPLAY 1 // Temporary: physical input + FLOW bass on LCD
 #define LCD_REFRESH_MS  100       // 10 fps; the character LCD need not steal RGB frame time
 #define KEYBOARD_FRAME_US 33333   // 30 fps; Moonlander LED flush ceiling is ~38 fps
 
@@ -102,6 +101,11 @@ static lv_power_test_t power_test = {};
 #endif
 #ifdef LANDERVIZ_ENCODER_TEST
 static lv_encoder_t encoder_test = {};
+#endif
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+static lv_encoder_t encoder_input = {};
+static lv_button_t encoder_button = {};
+static lv_controls_t controls = {};
 #endif
 
 struct runtime_metrics_t {
@@ -511,11 +515,14 @@ static void analyze_frame(
 }
 
 // ---------------------------------------------------------------------------
-// Mode button: short press = next, long press (>800 ms) = previous
+// Rotary controls: turn = visualization, short press = color, long = menu
 // ---------------------------------------------------------------------------
 
 static lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
 static uint32_t mode_announce_until_ms = 0;
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+static uint32_t color_announce_until_ms = 0;
+#endif
 
 [[maybe_unused]] static bool poll_input_calibration(uint32_t now_ms) {
     static uint32_t release_since_ms = 0;
@@ -551,7 +558,8 @@ static uint32_t mode_announce_until_ms = 0;
     return false;
 }
 
-[[maybe_unused]] static void poll_button() {
+#ifdef LANDERVIZ_POWER_TEST
+static void poll_power_button() {
     static bool stable = true;          // pull-up: idle = high
     static bool candidate = true;
     static uint32_t press_ms = 0;
@@ -569,38 +577,43 @@ static uint32_t mode_announce_until_ms = 0;
         stable = candidate;
         if (!stable) { press_ms = now; long_fired = false; }      // pressed
         else if (!long_fired) {                                   // released: short press
-#ifdef LANDERVIZ_POWER_TEST
             lv_power_test_next(&power_test);
-#else
-            mode = (lv_viz_mode_t)(
-                ((int)mode + 1) % (int)lv_viz_mode_t::COUNT);
-            mode_announce_until_ms = now + 1000;
-#endif
         }
     }
     if (!stable && !long_fired && now - press_ms > 800) {         // long press
         long_fired = true;
-#ifdef LANDERVIZ_POWER_TEST
         lv_power_test_previous(&power_test);
-#else
-        mode = (lv_viz_mode_t)(
-            ((int)mode + (int)lv_viz_mode_t::COUNT - 1) %
-            (int)lv_viz_mode_t::COUNT);
-        mode_announce_until_ms = now + 1000;
-#endif
     }
 }
+#endif
+
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+static void poll_controls(int rotation, lv_button_event_t button_event,
+                          uint32_t now_ms) {
+    const lv_control_result_t result =
+        lv_controls_update(&controls, rotation, button_event);
+    if (result.mode_changed) {
+        mode = controls.mode;
+        mode_announce_until_ms = now_ms + 1000;
+    }
+    if (result.color_scheme_changed) {
+        color_announce_until_ms = now_ms + 1000;
+    }
+    if (result.start_input_calibration) {
+        input_calibration_state =
+            input_calibration_state_t::WAIT_RELEASE;
+    }
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // LCD status: row 0 stereo VU or mirrored stereo spectrum,
 // row 1 mode name + fps. Boot splash on power-up.
 // ---------------------------------------------------------------------------
 
-#if !AUDIO_CALIBRATION_DISPLAY
-static uint32_t tenths_of_ms(uint32_t microseconds) {
+[[maybe_unused]] static uint32_t tenths_of_ms(uint32_t microseconds) {
     return std::min<uint32_t>((microseconds + 50) / 100, 999);
 }
-#endif
 
 typedef struct {
     float rms[LV_AUDIO_CHANNEL_COUNT];
@@ -697,6 +710,112 @@ static void update_input_diagnostic(uint32_t now_ms) {
     input_diagnostic.published = true;
 }
 
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+static void lcd_print_padded_line(int row, const char *text) {
+    char line[17];
+    memset(line, ' ', 16);
+    line[16] = '\0';
+    memcpy(line, text, std::min<size_t>(strlen(text), 16));
+    lcd_set_cursor(0, row);
+    lcd_print(line);
+}
+
+static void lcd_control_menu() {
+    char line[64];
+    snprintf(line, sizeof(line), "MENU %u/%u",
+             (unsigned int)controls.menu_item + 1,
+             (unsigned int)lv_menu_item_t::COUNT);
+    lcd_print_padded_line(0, line);
+    snprintf(line, sizeof(line), ">%-15.15s",
+             lv_menu_item_name(controls.menu_item));
+    lcd_print_padded_line(1, line);
+}
+
+static void lcd_diagnostics(int fps) {
+    char line[64];
+    const uint32_t missed_audio_windows = adc_buffers.dropped;
+    const float *rms = input_diagnostic.published
+                           ? input_diagnostic.displayed_rms
+                           : input_diagnostic.rms;
+    const float *peak = input_diagnostic.published
+                            ? input_diagnostic.displayed_peak
+                            : input_diagnostic.peak;
+
+    switch (controls.diagnostic_page) {
+        case lv_diagnostic_page_t::AUDIO:
+            snprintf(line, sizeof(line), "RMS L%3d R%3d",
+                     lv_level_dbfs(rms[0]), lv_level_dbfs(rms[1]));
+            lcd_print_padded_line(0, line);
+            snprintf(line, sizeof(line), "PEAK L%3d R%3d",
+                     lv_level_dbfs(peak[0]), lv_level_dbfs(peak[1]));
+            lcd_print_padded_line(1, line);
+            break;
+        case lv_diagnostic_page_t::GAIN: {
+            const uint32_t gain_tenths = (uint32_t)std::clamp(
+                std::lround(flow_normalizer.gain * 10.0f), 0l, 999l);
+            snprintf(line, sizeof(line), "GAIN %lu.%lu GATE %c",
+                     (unsigned long)(gain_tenths / 10u),
+                     (unsigned long)(gain_tenths % 10u),
+                     flow_normalizer.gate_open ? 'O' : 'C');
+            lcd_print_padded_line(0, line);
+            snprintf(line, sizeof(line), "NOISE %3d dBFS",
+                     lv_level_dbfs(flow_normalizer.noise_floor /
+                                   AUDIO_INPUT_GAIN));
+            lcd_print_padded_line(1, line);
+            break;
+        }
+        case lv_diagnostic_page_t::FLOW: {
+            const uint32_t bass = (uint32_t)std::clamp(
+                std::lround(input_diagnostic.displayed_bass * 1000.0f),
+                0l, 999l);
+            const uint32_t body = (uint32_t)std::clamp(
+                std::lround(input_diagnostic.displayed_body * 1000.0f),
+                0l, 999l);
+            snprintf(line, sizeof(line), "FLOW B%03lu>%03lu",
+                     (unsigned long)bass, (unsigned long)body);
+            lcd_print_padded_line(0, line);
+            snprintf(line, sizeof(line), "MISSED %03lu",
+                     (unsigned long)std::min<uint32_t>(
+                         missed_audio_windows, 999));
+            lcd_print_padded_line(1, line);
+            break;
+        }
+        case lv_diagnostic_page_t::PERFORMANCE:
+            snprintf(line, sizeof(line), "PERF %3dfps",
+                     std::clamp(fps, 0, 999));
+            lcd_print_padded_line(0, line);
+            snprintf(line, sizeof(line), "A%03lu R%03lu M%03lu",
+                     (unsigned long)tenths_of_ms(
+                         runtime_metrics.max_analysis_us),
+                     (unsigned long)tenths_of_ms(
+                         runtime_metrics.max_render_us),
+                     (unsigned long)std::min<uint32_t>(
+                         missed_audio_windows, 999));
+            lcd_print_padded_line(1, line);
+            break;
+        case lv_diagnostic_page_t::USB: {
+            const char *status = lv_usb_host_status_label(
+                usb_bridge_host_status());
+            snprintf(line, sizeof(line), "USB %-12.12s",
+                     status);
+            lcd_print_padded_line(0, line);
+            const lv_usb_bridge_metrics_t usb = usb_bridge_metrics();
+            snprintf(line, sizeof(line), "D%03lu H%03lu K%03lu",
+                     (unsigned long)tenths_of_ms(
+                         usb.max_device_task_gap_us),
+                     (unsigned long)tenths_of_ms(
+                         usb.max_host_task_gap_us),
+                     (unsigned long)tenths_of_ms(
+                         usb.max_keyboard_forward_us));
+            lcd_print_padded_line(1, line);
+            break;
+        }
+        case lv_diagnostic_page_t::COUNT:
+            break;
+    }
+}
+#endif
+
 static void lcd_status(uint32_t now_ms, int fps) {
 #ifdef LANDERVIZ_POWER_TEST
     (void)now_ms;
@@ -737,6 +856,16 @@ static void lcd_status(uint32_t now_ms, int fps) {
 #endif
     if (lcd_input_calibration(now_ms)) return;
     update_input_diagnostic(now_ms);
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+    if (controls.screen == lv_control_screen_t::MENU) {
+        lcd_control_menu();
+        return;
+    }
+    if (controls.screen == lv_control_screen_t::DIAGNOSTICS) {
+        lcd_diagnostics(fps);
+        return;
+    }
+#endif
     const bool show_spectrum =
         mode == lv_viz_mode_t::FLOW || mode == lv_viz_mode_t::SPECTRUM;
     static bool spectrum_chars_loaded = false;
@@ -808,83 +937,15 @@ static void lcd_status(uint32_t now_ms, int fps) {
     }
     const bool show_usb_status = strcmp(usb_label, "OK") != 0 ||
                                  (int32_t)(usb_status_until_ms - now_ms) > 0;
-#if AUDIO_CALIBRATION_DISPLAY
-    const uint32_t flow_status_page = (now_ms / 2000u) % 5u;
-#else
-    const uint32_t flow_status_page = (now_ms / 2000u) % 4u;
-#endif
     if (show_usb_status) {
         snprintf(line1, sizeof(line1), "USB: %-11s", usb_label);
     } else if ((int32_t)(mode_announce_until_ms - now_ms) > 0) {
         snprintf(line1, sizeof(line1), ">%-15s", lv_viz_mode_name(mode));
-    } else if (mode == lv_viz_mode_t::FLOW &&
-               flow_status_page == 1u) {
-#if AUDIO_CALIBRATION_DISPLAY
-        const float *rms = input_diagnostic.published
-                               ? input_diagnostic.displayed_rms
-                               : input_diagnostic.rms;
-        snprintf(line1, sizeof(line1), "RMS L%3d R%3d",
-                 lv_level_dbfs(rms[0]), lv_level_dbfs(rms[1]));
-#else
-        const uint32_t missed_audio_windows = adc_buffers.dropped;
-        snprintf(line1, sizeof(line1), "A%03lu R%03lu M%03lu  ",
-                 (unsigned long)tenths_of_ms(
-                     runtime_metrics.max_analysis_us),
-                 (unsigned long)tenths_of_ms(
-                     runtime_metrics.max_render_us),
-                 (unsigned long)std::min<uint32_t>(missed_audio_windows,
-                                                   999));
-#endif
-    } else if (mode == lv_viz_mode_t::FLOW &&
-               flow_status_page == 2u) {
-#if AUDIO_CALIBRATION_DISPLAY
-        const float *peak = input_diagnostic.published
-                                ? input_diagnostic.displayed_peak
-                                : input_diagnostic.peak;
-        snprintf(line1, sizeof(line1), "PEAK L%3d R%3d",
-                 lv_level_dbfs(peak[0]), lv_level_dbfs(peak[1]));
-#else
-        snprintf(line1, sizeof(line1), "F%03lu E%03lu       ",
-                 (unsigned long)tenths_of_ms(
-                     runtime_metrics.max_spectrum_us),
-                 (unsigned long)tenths_of_ms(
-                     runtime_metrics.max_features_us));
-#endif
-    } else if (mode == lv_viz_mode_t::FLOW &&
-               flow_status_page == 3u) {
-#if AUDIO_CALIBRATION_DISPLAY
-        const uint32_t gain_tenths = (uint32_t)std::clamp(
-            std::lround(flow_normalizer.gain * 10.0f), 0l, 999l);
-        snprintf(line1, sizeof(line1), "GAIN %lu.%lu N%3d%c",
-                 (unsigned long)(gain_tenths / 10u),
-                 (unsigned long)(gain_tenths % 10u),
-                 lv_level_dbfs(flow_normalizer.noise_floor /
-                               AUDIO_INPUT_GAIN),
-                 flow_normalizer.gate_open ? 'O' : 'C');
-#else
-        const lv_usb_bridge_metrics_t usb = usb_bridge_metrics();
-        snprintf(line1, sizeof(line1), "D%03lu H%03lu K%03lu  ",
-                 (unsigned long)tenths_of_ms(
-                     usb.max_device_task_gap_us),
-                 (unsigned long)tenths_of_ms(
-                     usb.max_host_task_gap_us),
-                 (unsigned long)tenths_of_ms(
-                     usb.max_keyboard_forward_us));
-#endif
-#if AUDIO_CALIBRATION_DISPLAY
-    } else if (mode == lv_viz_mode_t::FLOW &&
-               flow_status_page == 4u) {
-        const uint32_t bass = (uint32_t)std::clamp(
-            std::lround(input_diagnostic.displayed_bass * 1000.0f),
-            0l, 999l);
-        const uint32_t body = (uint32_t)std::clamp(
-            std::lround(input_diagnostic.displayed_body * 1000.0f),
-            0l, 999l);
-        const uint32_t missed_audio_windows = adc_buffers.dropped;
-        snprintf(line1, sizeof(line1), "B%03lu>%03lu M%03lu",
-                 (unsigned long)bass, (unsigned long)body,
-                 (unsigned long)std::min<uint32_t>(missed_audio_windows,
-                                                   999));
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+    } else if ((int32_t)(color_announce_until_ms - now_ms) > 0) {
+        snprintf(line1, sizeof(line1), "COLOR %-10s",
+                 lv_color_scheme_name(
+                     lv_controls_color_scheme(&controls)));
 #endif
     } else {
         const int display_fps = fps < 0 ? 0 : (fps > 999 ? 999 : fps);
@@ -910,13 +971,13 @@ static void lcd_status(uint32_t now_ms, int fps) {
 int main() {
     lv_audio_analysis_init();
 
-    // Latch calibration only when the external mode button remains held
+    // Latch calibration only when the encoder button remains held
     // throughout the splash. This makes startup intent independent of one
     // instantaneous GPIO read.
     gpio_init(BUTTON_PIN);
     gpio_set_dir(BUTTON_PIN, GPIO_IN);
     gpio_pull_up(BUTTON_PIN);
-#ifdef LANDERVIZ_ENCODER_TEST
+#ifndef LANDERVIZ_POWER_TEST
     gpio_init(ENCODER_A_PIN);
     gpio_set_dir(ENCODER_A_PIN, GPIO_IN);
     gpio_pull_up(ENCODER_A_PIN);
@@ -929,8 +990,17 @@ int main() {
     const bool calibration_pressed_at_start = false;
     lv_encoder_init(&encoder_test, gpio_get(ENCODER_A_PIN),
                     gpio_get(ENCODER_B_PIN));
-#else
+#elif defined(LANDERVIZ_POWER_TEST)
     const bool calibration_pressed_at_start = !gpio_get(BUTTON_PIN);
+#else
+    const bool button_pressed = !gpio_get(BUTTON_PIN);
+    const bool calibration_pressed_at_start = button_pressed;
+    lv_encoder_init(&encoder_input, gpio_get(ENCODER_A_PIN),
+                    gpio_get(ENCODER_B_PIN));
+    lv_button_init(&encoder_button, button_pressed,
+                   to_ms_since_boot(get_absolute_time()));
+    lv_controls_init(&controls);
+    mode = controls.mode;
 #endif
 
     usb_bridge_init();
@@ -971,8 +1041,17 @@ int main() {
 #ifdef LANDERVIZ_ENCODER_TEST
         lv_encoder_update(&encoder_test, gpio_get(ENCODER_A_PIN),
                           gpio_get(ENCODER_B_PIN));
+#elif defined(LANDERVIZ_POWER_TEST)
+        if (!poll_input_calibration(now)) poll_power_button();
 #else
-        if (!poll_input_calibration(now)) poll_button();
+        const int rotation = lv_encoder_update(
+            &encoder_input, gpio_get(ENCODER_A_PIN),
+            gpio_get(ENCODER_B_PIN));
+        const lv_button_event_t button_event = lv_button_update(
+            &encoder_button, !gpio_get(BUTTON_PIN), now);
+        if (!poll_input_calibration(now)) {
+            poll_controls(rotation, button_event, now);
+        }
 #endif
 
         if (adc_buffers.ready >= 0) {
@@ -1017,6 +1096,10 @@ int main() {
                 lv_visualizer_render(&visualizer, mode, audio,
                                      audio_present, now, frame);
             }
+#endif
+#if !defined(LANDERVIZ_POWER_TEST) && !defined(LANDERVIZ_ENCODER_TEST)
+            lv_color_scheme_apply_frame(
+                frame, lv_controls_color_scheme(&controls));
 #endif
             board_show();
             runtime_metrics.max_render_us = std::max(

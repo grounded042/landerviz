@@ -53,6 +53,9 @@ target_link_libraries(cmsis_dsp_q15 PUBLIC cmsis_core_headers)
 add_executable(landerviz
   main.cpp
   src/audio_analysis.cpp
+  src/color_scheme.cpp
+  src/controls.cpp
+  src/encoder.cpp
   src/effects.cpp
   src/flow_v3.cpp
   src/flow_v3_attack.cpp
@@ -76,7 +79,6 @@ if(LANDERVIZ_POWER_TEST)
   )
 endif()
 if(LANDERVIZ_ENCODER_TEST)
-  target_sources(landerviz PRIVATE src/encoder.cpp)
   target_compile_definitions(landerviz PRIVATE LANDERVIZ_ENCODER_TEST)
 endif()
 target_include_directories(landerviz PRIVATE include ${CMAKE_CURRENT_LIST_DIR})

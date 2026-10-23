@@ -36,7 +36,7 @@ The prototype has demonstrated:
 - ordinary Human Interface Device (HID) keyboard reports forwarded to macOS;
 - per-key RGB delivery over the vendor Raw HID protocol;
 - eight 32-byte Raw HID packets per complete RGB frame;
-- liquid-crystal display (LCD) status, mode-button input, silence detection,
+- liquid-crystal display (LCD) status, rotary-encoder input, silence detection,
   and all visualization modes;
 - complete-system power from a data port on the powered Anker hub; and
 - sustained delivery of approximately 30 complete RGB frames per second with
@@ -61,7 +61,7 @@ Moonlander -- downstream USB --> RP2354A -- upstream USB --> powered hub --> Mac
                                        |
                                        +-- stereo audio input
                                        +-- external display port
-                                       +-- mode button
+                                       +-- rotary encoder + push switch
 ```
 
 The RP2354A is a Universal Serial Bus (USB) host toward the keyboard and a USB
@@ -132,19 +132,23 @@ These assignments are frozen:
 | PIO-USB host D- | GPIO1 through 22 ohms |
 | Display/expansion I2C1 SDA | GPIO2 |
 | Display/expansion I2C1 SCL | GPIO3 |
+| Rotary encoder A | GPIO4 |
+| Rotary encoder B | GPIO5 |
 | Left audio | GPIO26 / ADC0 |
 | Right audio | GPIO27 / ADC1 |
-| Mode button | GPIO8 |
+| Rotary encoder push switch | GPIO8 |
 
-The mode button uses the internal pull-up resistor and approximately 30 ms
-debounce. A short press selects the next mode; holding for more than 800 ms
-selects the previous mode.
+Encoder A, encoder B, and the push switch use internal pull-up resistors and
+share a digital-ground common. The validated EC11 produces one count per
+detent with no rejected transitions. Turning selects the visualization, a
+short press cycles its color scheme, and holding for more than 800 ms opens the
+LCD menu.
 
 GPIO2 through GPIO7 drove the initial parallel-LCD prototype. The validated
 revision-A breadboard configuration now uses GPIO2 and GPIO3 as the native
 I2C1 data and clock pins shared by the display port and the 3.3 V digital
-expansion footprint. GPIO4 through GPIO7 remain available for the expansion
-interface; their final mapping is open.
+expansion footprint. GPIO4 and GPIO5 are now frozen for the rotary encoder;
+GPIO6 and GPIO7 remain available for the expansion interface.
 
 ## USB-C connectors — frozen form, open power details
 

@@ -346,6 +346,35 @@
           touch "$out"
         '';
       };
+      "controls-core" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-controls-core";
+        version = "0.1.0";
+        src = self;
+        dontConfigure = true;
+        buildPhase = ''
+          $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
+            tests/controls_test.cpp src/controls.cpp -o controls_test
+          ./controls_test
+        '';
+        installPhase = ''
+          touch "$out"
+        '';
+      };
+      "color-scheme-core" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-color-scheme-core";
+        version = "0.1.0";
+        src = self;
+        dontConfigure = true;
+        buildPhase = ''
+          $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
+            tests/color_scheme_test.cpp src/color_scheme.cpp \
+            -o color_scheme_test
+          ./color_scheme_test
+        '';
+        installPhase = ''
+          touch "$out"
+        '';
+      };
     });
 
     devShells = forAllSystems (system: let
