@@ -9,6 +9,11 @@ project(landerviz LANGUAGES C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 option(LANDERVIZ_POWER_TEST "Build manual full-white power diagnostic" OFF)
+option(LANDERVIZ_ENCODER_TEST "Build rotary-encoder input diagnostic" OFF)
+
+if(LANDERVIZ_POWER_TEST AND LANDERVIZ_ENCODER_TEST)
+  message(FATAL_ERROR "Power and encoder diagnostics are mutually exclusive")
+endif()
 
 pico_sdk_init()
 
@@ -69,6 +74,10 @@ if(LANDERVIZ_POWER_TEST)
     LANDERVIZ_POWER_TEST
     LANDERVIZ_BRIGHTNESS_CAP=255
   )
+endif()
+if(LANDERVIZ_ENCODER_TEST)
+  target_sources(landerviz PRIVATE src/encoder.cpp)
+  target_compile_definitions(landerviz PRIVATE LANDERVIZ_ENCODER_TEST)
 endif()
 target_include_directories(landerviz PRIVATE include ${CMAKE_CURRENT_LIST_DIR})
 target_compile_definitions(landerviz PRIVATE

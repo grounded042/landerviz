@@ -26,6 +26,9 @@
 #include "landerviz/audio_analysis.h"
 #include "landerviz/audio_buffer.h"
 #include "landerviz/effects.h"
+#ifdef LANDERVIZ_ENCODER_TEST
+#include "landerviz/encoder.h"
+#endif
 #include "landerviz/flow_v3_engine.h"
 #include "landerviz/moonlander_map.h"
 #include "landerviz/pcf8574_lcd.h"
@@ -44,6 +47,8 @@
 #define LCD_SDA_PIN     2
 #define LCD_SCL_PIN     3
 #define LCD_I2C_HZ      100000
+#define ENCODER_A_PIN   4
+#define ENCODER_B_PIN   5
 #define BUTTON_PIN      8         // tactile switch: diagonal pins, GPIO -> GND, internal pull-up
 
 #define NUM_KEYS        72        // Moonlander total; mapping is pinned in moonlander_map.h
@@ -53,9 +58,12 @@
 #define LCD_REFRESH_MS  100       // 10 fps; the character LCD need not steal RGB frame time
 #define KEYBOARD_FRAME_US 33333   // 30 fps; Moonlander LED flush ceiling is ~38 fps
 
-#ifdef LANDERVIZ_POWER_TEST
+#if defined(LANDERVIZ_POWER_TEST)
 #define BOOT_LINE0      "POWER TEST"
 #define BOOT_LINE1      "starts black"
+#elif defined(LANDERVIZ_ENCODER_TEST)
+#define BOOT_LINE0      "ENCODER TEST"
+#define BOOT_LINE1      "turn + press"
 #else
 #define BOOT_LINE0      "LANDERVIZ"
 #define BOOT_LINE1      "audio -> light"
@@ -91,6 +99,9 @@ static lv_visualizer_t visualizer = {};
 static lv_flow_v3_engine_t flow_v3 = {};
 #ifdef LANDERVIZ_POWER_TEST
 static lv_power_test_t power_test = {};
+#endif
+#ifdef LANDERVIZ_ENCODER_TEST
+static lv_encoder_t encoder_test = {};
 #endif
 
 struct runtime_metrics_t {
@@ -506,7 +517,7 @@ static void analyze_frame(
 static lv_viz_mode_t mode = lv_viz_mode_t::FLOW;
 static uint32_t mode_announce_until_ms = 0;
 
-static bool poll_input_calibration(uint32_t now_ms) {
+[[maybe_unused]] static bool poll_input_calibration(uint32_t now_ms) {
     static uint32_t release_since_ms = 0;
     switch (input_calibration_state) {
         case input_calibration_state_t::NONE:
@@ -540,7 +551,7 @@ static bool poll_input_calibration(uint32_t now_ms) {
     return false;
 }
 
-static void poll_button() {
+[[maybe_unused]] static void poll_button() {
     static bool stable = true;          // pull-up: idle = high
     static bool candidate = true;
     static uint32_t press_ms = 0;
@@ -695,6 +706,31 @@ static void lcd_status(uint32_t now_ms, int fps) {
     lcd_print("POWER TEST      ");
     snprintf(line, sizeof(line), "WHITE %3u       ",
              (unsigned int)lv_power_test_level(&power_test));
+    lcd_set_cursor(0, 1);
+    lcd_print(line);
+    return;
+#endif
+#ifdef LANDERVIZ_ENCODER_TEST
+    (void)now_ms;
+    (void)fps;
+    const bool a = gpio_get(ENCODER_A_PIN);
+    const bool b = gpio_get(ENCODER_B_PIN);
+    const bool pressed = !gpio_get(BUTTON_PIN);
+    const long position = static_cast<long>(std::clamp<int32_t>(
+        encoder_test.position, -999, 999));
+    const unsigned long errors = static_cast<unsigned long>(
+        std::min<uint32_t>(encoder_test.invalid_transitions, 999));
+    const char *direction = encoder_test.last_direction > 0
+                                ? "CW"
+                                : (encoder_test.last_direction < 0 ? "CCW"
+                                                                   : "--");
+    char line[17];
+    snprintf(line, sizeof(line), "ENC A%dB%d SW %-4s",
+             a ? 1 : 0, b ? 1 : 0, pressed ? "DOWN" : "UP");
+    lcd_set_cursor(0, 0);
+    lcd_print(line);
+    snprintf(line, sizeof(line), "P%+04ld %-3s E%03lu  ",
+             position, direction, errors);
     lcd_set_cursor(0, 1);
     lcd_print(line);
     return;
@@ -880,8 +916,22 @@ int main() {
     gpio_init(BUTTON_PIN);
     gpio_set_dir(BUTTON_PIN, GPIO_IN);
     gpio_pull_up(BUTTON_PIN);
+#ifdef LANDERVIZ_ENCODER_TEST
+    gpio_init(ENCODER_A_PIN);
+    gpio_set_dir(ENCODER_A_PIN, GPIO_IN);
+    gpio_pull_up(ENCODER_A_PIN);
+    gpio_init(ENCODER_B_PIN);
+    gpio_set_dir(ENCODER_B_PIN, GPIO_IN);
+    gpio_pull_up(ENCODER_B_PIN);
+#endif
     sleep_ms(2);
+#ifdef LANDERVIZ_ENCODER_TEST
+    const bool calibration_pressed_at_start = false;
+    lv_encoder_init(&encoder_test, gpio_get(ENCODER_A_PIN),
+                    gpio_get(ENCODER_B_PIN));
+#else
     const bool calibration_pressed_at_start = !gpio_get(BUTTON_PIN);
+#endif
 
     usb_bridge_init();
     lv_flow_v3_engine_init(&flow_v3);
@@ -918,7 +968,12 @@ int main() {
         usb_bridge_device_task();
         uint32_t now = to_ms_since_boot(get_absolute_time());
         reset_metrics_after_usb_settles(now);
+#ifdef LANDERVIZ_ENCODER_TEST
+        lv_encoder_update(&encoder_test, gpio_get(ENCODER_A_PIN),
+                          gpio_get(ENCODER_B_PIN));
+#else
         if (!poll_input_calibration(now)) poll_button();
+#endif
 
         if (adc_buffers.ready >= 0) {
             const uint32_t irq_state = save_and_disable_interrupts();

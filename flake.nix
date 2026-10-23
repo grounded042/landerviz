@@ -84,6 +84,7 @@
       mkRp2040 = {
         pname,
         powerTest ? false,
+        encoderTest ? false,
       }:
         pkgs.stdenvNoCC.mkDerivation {
           inherit pname;
@@ -104,6 +105,11 @@
               -DBUILD_TESTING=OFF \
               -DLANDERVIZ_POWER_TEST=${
               if powerTest
+              then "ON"
+              else "OFF"
+            } \
+              -DLANDERVIZ_ENCODER_TEST=${
+              if encoderTest
               then "ON"
               else "OFF"
             }
@@ -170,6 +176,10 @@
       "rp2040-power-test" = mkRp2040 {
         pname = "landerviz-rp2040-power-test";
         powerTest = true;
+      };
+      "rp2040-encoder-test" = mkRp2040 {
+        pname = "landerviz-rp2040-encoder-test";
+        encoderTest = true;
       };
 
       moonlander = mkMoonlander {
@@ -275,6 +285,7 @@
       };
       rp2040 = self.packages.${system}.rp2040;
       "rp2040-power-test" = self.packages.${system}."rp2040-power-test";
+      "rp2040-encoder-test" = self.packages.${system}."rp2040-encoder-test";
       moonlander = self.packages.${system}.moonlander;
       "moonlander-power-test" = self.packages.${system}."moonlander-power-test";
       "power-capture" = self.packages.${system}."power-capture";
@@ -316,6 +327,20 @@
           $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
             tests/pcf8574_lcd_test.cpp -o pcf8574_lcd_test
           ./pcf8574_lcd_test
+        '';
+        installPhase = ''
+          touch "$out"
+        '';
+      };
+      "encoder-core" = pkgs.stdenv.mkDerivation {
+        pname = "landerviz-encoder-core";
+        version = "0.1.0";
+        src = self;
+        dontConfigure = true;
+        buildPhase = ''
+          $CXX -std=c++17 -Wall -Wextra -Werror -Iinclude \
+            tests/encoder_test.cpp src/encoder.cpp -o encoder_test
+          ./encoder_test
         '';
         installPhase = ''
           touch "$out"
