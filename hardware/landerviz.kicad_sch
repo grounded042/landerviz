@@ -1,0 +1,290 @@
+(kicad_sch
+	(version 20260306)
+	(generator "eeschema")
+	(generator_version "10.0")
+	(uuid "9a4fda1a-f901-4dc8-867c-dd55c83f5a2c")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 25.4 38.1)
+		(size 50.8 35.56)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "f499eeb9-a26d-41ed-9214-0657c7dedbd1")
+		(property "Sheetname" "MCU core"
+			(at 25.4 37.3884 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mcu.kicad_sch"
+			(at 25.4 64.0046 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left top)
+			)
+		)
+		(pin "USB_DEVICE_D+" bidirectional
+			(at 76.2 41.91 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "8b26f40b-c681-4fdf-ba07-d2cd9f5063e2")
+		)
+		(pin "USB_DEVICE_D-" bidirectional
+			(at 76.2 44.45 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "6144e9c8-2ed2-48a4-bbdd-da82dca1853c")
+		)
+		(pin "USB_HOST_D+" bidirectional
+			(at 76.2 46.99 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "e295a42c-6d1f-4959-877d-5e1e5af4ab1c")
+		)
+		(pin "USB_HOST_D-" bidirectional
+			(at 76.2 49.53 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "178b8598-6f6e-4390-ae7c-59b62c7c18fa")
+		)
+		(pin "AUDIO_L_ADC" input
+			(at 25.4 52.07 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "ef8aa7ef-c6ba-4446-bf10-53840970477a")
+		)
+		(pin "AUDIO_R_ADC" input
+			(at 25.4 54.61 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "8dfe4e96-f2e4-419f-b25a-2e9e35ca93db")
+		)
+		(pin "I2C_SDA" bidirectional
+			(at 76.2 52.07 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "9c7b5bf9-1fb7-4335-9305-8c44ccc4ddd1")
+		)
+		(pin "I2C_SCL" bidirectional
+			(at 76.2 54.61 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "355de919-f2fc-46f8-bbba-4234b434a315")
+		)
+		(pin "ENC_A" input
+			(at 76.2 57.15 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "11c765bf-ae02-4d36-8ce4-8388bf71993e")
+		)
+		(pin "ENC_B" input
+			(at 76.2 59.69 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "94fa9d08-89e6-4b01-99c5-1673df2f6b58")
+		)
+		(pin "ENC_SW" input
+			(at 76.2 62.23 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "9f56bfed-3e4a-4c42-b8c5-9e800f06fc4f")
+		)
+		(pin "EXP_GPIO6" bidirectional
+			(at 76.2 64.77 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "75c2b674-9678-4fe3-8b64-e1398e225555")
+		)
+		(pin "EXP_GPIO7" bidirectional
+			(at 76.2 67.31 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "9136048a-a341-4dac-ac9b-012406e121eb")
+		)
+		(instances
+			(project "landerviz"
+				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 88.9 38.1)
+		(size 50.8 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "94639558-7e61-481b-a707-08f2f89d1250")
+		(property "Sheetname" "USB and power"
+			(at 88.9 37.3884 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "usb_power.kicad_sch"
+			(at 88.9 64.0046 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left top)
+			)
+		)
+		(pin "USB_DEVICE_D+" bidirectional
+			(at 88.9 41.91 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "2ca9299a-31f2-4869-91ab-844090886012")
+		)
+		(pin "USB_DEVICE_D-" bidirectional
+			(at 88.9 44.45 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "320441f6-5ac7-4426-bdc3-aa6fd6d0e816")
+		)
+		(pin "USB_HOST_D+" bidirectional
+			(at 88.9 46.99 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "bd63f186-5002-427e-b1d7-b6773d4295a0")
+		)
+		(pin "USB_HOST_D-" bidirectional
+			(at 88.9 49.53 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "fd8fc594-309a-4652-b7c6-cac532f98457")
+		)
+		(pin "DISPLAY_5V" output
+			(at 139.7 59.69 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "72d8a4a6-9130-4a67-bbef-c691355cb671")
+		)
+		(instances
+			(project "landerviz"
+				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 25.4 76.2)
+		(size 50.8 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "463998df-d5f4-4a44-88ba-ce34f5b44e88")
+		(property "Sheetname" "Audio frontend"
+			(at 25.4 75.4884 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "audio.kicad_sch"
+			(at 25.4 102.1046 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left top)
+			)
+		)
+		(instances
+			(project "landerviz"
+				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 88.9 76.2)
+		(size 50.8 25.4)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0)
+		)
+		(uuid "956aed16-e56b-4e6e-84a7-00b0d342df7e")
+		(property "Sheetname" "Controls and display"
+			(at 88.9 75.4884 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "controls_display.kicad_sch"
+			(at 88.9 102.1046 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font (size 1.27 1.27))
+				(justify left top)
+			)
+		)
+		(instances
+			(project "landerviz"
+				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c"
+					(page "5")
+				)
+			)
+		)
+	)
+	(wire
+		(pts (xy 76.2 41.91) (xy 88.9 41.91))
+		(stroke (width 0) (type default))
+		(uuid "b955be63-dce8-4ae5-8118-3895365a91a5")
+	)
+	(wire
+		(pts (xy 76.2 44.45) (xy 88.9 44.45))
+		(stroke (width 0) (type default))
+		(uuid "dc91f768-0fbb-4a3d-94ec-7e9d7837174c")
+	)
+	(wire
+		(pts (xy 76.2 46.99) (xy 88.9 46.99))
+		(stroke (width 0) (type default))
+		(uuid "50795998-6556-469e-8cb0-e8ce8e84e328")
+	)
+	(wire
+		(pts (xy 76.2 49.53) (xy 88.9 49.53))
+		(stroke (width 0) (type default))
+		(uuid "68a2a470-33d8-498c-aa84-b274ed88e5ab")
+	)
+	(sheet_instances
+		(path "/" (page "1"))
+	)
+	(embedded_fonts no)
+)

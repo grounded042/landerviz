@@ -5,3 +5,12 @@
 /result
 /result-*
 /zsa_moonlander_*_coding_source.zip
+
+# KiCad local state and generated outputs
+*.kicad_prl
+*.kicad_sch-bak
+*.kicad_pcb-bak
+*.kicad_pro-bak
+*.lck
+*-backups/
+/hardware/fabrication/

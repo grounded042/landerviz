@@ -1,7 +1,7 @@
 # LanderViz PCB specification
 
-Status: reconciled design basis with hardware-accepted FLOW v3 and frozen
-revision-A compute/display choices, 2026-10-18.
+Status: schematic capture in progress with hardware-accepted FLOW v3 and
+frozen revision-A compute, display, and USB/power architecture, 2026-10-29.
 
 LanderViz is a standalone audio visualizer whose revision-A printed circuit
 board (PCB) targets a ZSA Moonlander Mark I. It sits between the keyboard and
@@ -13,10 +13,11 @@ runs on the Mac. The proven breadboard uses an RP2040; revision A's RP2354A
 selection is the deliberate custom-board successor.
 
 The breadboard prototype validates the end-to-end architecture. Repository
-commit `ebb5dcd` is the hardware-accepted FLOW v3 firmware milestone. The
-repository at <https://github.com/grounded042/landerviz> is the behavioral,
-protocol, pin-map, and wiring reference. Record the final PCB-design baseline
-commit in the release notes before ordering boards.
+commit `ebb5dcd` is the hardware-accepted FLOW v3 firmware milestone;
+`5d1f1a0` adds the accepted rotary menu and color controls. The repository at
+<https://github.com/grounded042/landerviz> is the behavioral, protocol,
+pin-map, and wiring reference. Record the final PCB-design baseline commit in
+the release notes before ordering boards.
 
 ## Status vocabulary
 
@@ -119,6 +120,24 @@ memory headroom and eliminating external flash. Do not assume a specific speed
 increase: the assembled revision-A board must still pass the 30 FPS, USB, ADC,
 and keyboard-latency acceptance checks.
 
+### Raspberry Pi reference-design boundary
+
+The schematic-capture reference is Raspberry Pi's `RP2350A Minimal` KiCad
+design, revision R4-S1 dated July 2026, obtained from
+<https://pip.raspberrypi.com/documents/RP-010328-CA-RP2350A%20Minimal%20KiCAD.zip>.
+The downloaded archive's SHA-256 digest is
+`c0b858d78f56fa271a827064198e8ee81e4ec246234ce6659be8a1fcd877d06b`.
+It is published under the MIT license.
+
+That design uses **RP2350A**, while LanderViz uses **RP2354A**. They share the
+QFN-60 package and much of the processor support circuitry, so the reference
+is used net by net for power, core regulation, decoupling, crystal, USB,
+RUN/reset, BOOTSEL, Serial Wire Debug (SWD), and exposed-pad treatment. Its
+external QSPI flash circuit, flash boot configuration, Micro-USB connector,
+board outline, and layout are not inherited. The RP2354A integrated-flash
+configuration must be checked directly against the current RP2350 datasheet
+and hardware-design guide before schematic approval.
+
 ## GPIO map
 
 **I2C** means Inter-Integrated Circuit, a bidirectional two-signal serial bus.
@@ -150,7 +169,7 @@ I2C1 data and clock pins shared by the display port and the 3.3 V digital
 expansion footprint. GPIO4 and GPIO5 are now frozen for the rotary encoder;
 GPIO6 and GPIO7 remain available for the expansion interface.
 
-## USB-C connectors — frozen form, open power details
+## USB-C connectors — frozen
 
 Revision A has two USB-C receptacles and no USB-A connector:
 
@@ -172,43 +191,54 @@ Route D+ and D- as a short differential pair over an uninterrupted ground
 reference. A **differential pair** is a matched pair of traces that carries a
 signal as the voltage difference between them.
 
-### Downstream current advertisement — order blocker
+### Downstream current advertisement and attachment
 
-A 22 kilohm CC pull-up advertises 1.5 A. That value is not yet approved. The
-current firmware declares a 500 mA upstream USB requirement, and a 1.5 A-rated
-fuse or switch does not make 1.5 A available from the hub. The downstream port
-must not advertise more current than the complete upstream path can supply
-after reserving power for the RP2354A, audio frontend, and display.
+Revision A advertises 1.5 A to the dedicated Moonlander-facing port. This does
+not force the keyboard to draw 1.5 A; it communicates the current available at
+that downstream port. The choice covers the measured approximately 0.67 A
+Moonlander contribution at the accepted 175/255 all-white limit and avoids
+advertising the traditional USB 2.0 500 mA limit while knowingly operating
+above it.
 
-Choose the downstream CC pull-ups only after power measurements and the
-upstream source contract are known. Default-current advertisement is the safe
-baseline for the proven USB-A-to-USB-C hub setup. If 1.5 A advertisement is a
-requirement, the upstream Type-C source and the board must both establish and
-support that budget without relying on USB Power Delivery.
+The advertisement does not make LanderViz a universally compliant 1.5 A USB
+source. Its own upstream source remains the frozen, measured powered-hub data
+port, and the known mismatch with the upstream 500 mA USB declaration remains
+documented below. Do not describe direct laptop-port or arbitrary-hub operation
+as supported.
 
-**VBUS** is the 5 V USB bus-power rail. The exact downstream attachment and
-VBUS switching circuit is open. Revision A should use current-limited,
-protected VBUS switching if the size and component budget permit it. Document
-any deliberate departure from standards-compliant attach-controlled VBUS
-before schematic approval.
+**VBUS** is the 5 V USB bus-power rail. A TPS25821 USB Type-C source controller
+monitors both downstream CC pins and enables VBUS only after detecting a sink.
+It provides the 1.5 A CC advertisement, attachment-controlled VBUS discharge,
+and a 1.7 A nominal internal current limit. The TPS25821 is the USB 2.0-oriented
+variant without VCONN; revision A neither uses SuperSpeed nor requires an
+electronically marked cable for its 1.5 A link.
 
-## Power architecture — partially frozen
+## Power architecture — frozen
+
+Revision A is supported from a data port on the powered Anker 60 W hub through
+a USB-A-to-USB-C data cable. It is not specified for a laptop port, an
+unpowered hub, a charging-only PowerIQ port, or an arbitrary USB source. This
+is a deliberate revision-A constraint based on the proven system, not a claim
+of universal USB bus-power compliance.
 
 The intended path is:
 
 ```text
 upstream USB-C VBUS
-    -> input protection
-    -> downstream current-limited VBUS path
+    -> input resettable overcurrent protection
+    -> protected 5 V rail and 470 uF bulk reservoir
+    -> TPS25821 attachment-controlled, current-limited VBUS path
     -> Moonlander USB-C VBUS
-    -> local bulk capacitor near the downstream connector
+    -> less than 10 uF local output bypass near the downstream connector
 
 upstream USB-C VBUS
-    -> 3.3 V regulator
+    -> protected 5 V rail
+    -> TLV75533PDBVR 3.3 V linear regulator
     -> RP2354A and 3.3 V logic
 
 upstream USB-C VBUS
-    -> protected/switched 5 V display output
+    -> protected 5 V rail
+    -> separately protected 5 V display output
 ```
 
 The display output is sized only for revision A's 5 V PCF8574T-backed 16x2
@@ -217,38 +247,45 @@ the revision-A power budget.
 
 The Pro Micro underside-VBUS connection was a breadboard expedient and does
 not appear on this board. Retain approximately 470 microfarads of bulk
-capacitance close to the downstream connector unless measurement supports a
-different value. Never power the Moonlander from a second supply at the same
-time.
+capacitance on the protected 5 V rail before the TPS25821 switch. The
+breadboard placed this capacitor directly across the always-powered downstream
+connector, where it buffered LED and startup load steps. On an
+attachment-controlled Type-C port, placing it after the switch would instead
+create a large inrush current every time VBUS turns on. Follow the TPS25821
+guidance by using less than 10 microfarads directly on its switched output.
+The upstream reservoir still supports downstream load steps through the
+switch's low-resistance power path. Never power the Moonlander from a second
+supply at the same time.
+
+The 3.3 V rail uses the fixed-output TLV75533PDBVR 500 mA low-dropout linear
+regulator. The Moonlander and LCD remain on 5 V, so this regulator supplies
+only the RP2354A and low-current 3.3 V circuitry. A linear regulator is chosen
+over a switching converter for revision A because it needs fewer components
+and introduces no additional switching node beside the analog audio frontend.
+Verify its temperature during assembled-board bring-up.
+
+The input resettable fuse must be able to hold the advertised 1.5 A across the
+specified operating-temperature range; do not pair a 1.1 A hold-current part
+with the 1.5 A advertisement. The downstream TPS25821 provides faster and more
+precise Moonlander-port fault limiting. The input device protects the board's
+other 5 V branches and wiring from sustained faults. Schematic capture uses the
+Littelfuse 1206L200SL, a 2 A-hold polymer positive-temperature-coefficient
+(PTC) resettable fuse, as the current candidate. Its assembly availability and
+temperature derating remain release checks; do not silently substitute a lower
+hold-current part.
 
 Component voltage/current ratings should include sensible margin, but the
 protection threshold and USB current advertisement must be based on the real
 available current rather than a nominal “1.5 A class” goal.
 
-### Power-budget measurement — order blocker
+### Completed power-budget measurement
 
-Use the
-[FNIRSI FNB58](https://www.fnirsi.com/products/fnb58), or an equivalent
-logging USB power meter with USB 2.0 data passthrough, to record voltage and
-current curves at up to 100 samples per second. Insert it between the powered
-Anker hub's data port and LanderViz so it measures the complete system. A
-simple two-readings-per-second charging meter is insufficient for the startup
-and LED-transition checks. Record the breadboard baseline first and repeat the
-same cases on the assembled PCB:
-
-- the controller without the Moonlander or display;
-- the Moonlander connected with visualization idle;
-- typical visualization current;
-- the worst observed current at `BRIGHTNESS_CAP`;
-- downstream VBUS voltage during Moonlander startup and the worst LED
-  transition;
-- each supported display at typical and maximum brightness; and
-- startup/inrush current with the Moonlander and target display connected.
-
-The meter cannot prove extremely short electrical spikes. If its recorded
-curve shows material voltage sag, unstable enumeration, or insufficient margin,
-repeat the suspect transition with a faster instrument before selecting the
-power-path ratings.
+The revision-A breadboard power characterization is complete. The FNIRSI
+FNB58 logged the entire supported system between the powered Anker hub and
+LanderViz at approximately 100 samples per second. These measurements freeze
+the 175/255 brightness cap and provide the sizing basis for the PCB power
+path. No additional breadboard power test is required before schematic
+capture.
 
 ### RP2040 breadboard baseline — 2026-10-22
 
@@ -281,17 +318,13 @@ itself identify whether the limiting element was the Pro Micro VBUS path,
 breadboard wiring, USB breakout, cable, or Moonlander. Do not use 200 as a
 design target merely because it survived briefly during a stepped sweep.
 
-The 0.724 A worst-case peak also exceeds the firmware's current 500 mA
-upstream USB declaration. Therefore this measurement closes the prototype
-brightness-cap question but does not close the revision-A power order blocker.
-Before schematic approval:
-
-- decide how the upstream USB-C connection validly supplies the measured
-  worst case;
-- select the downstream switch, protection, traces, connectors, and cable path
-  with margin above the final measured load; and
-- repeat startup and five-minute 175/255 white tests on the assembled PCB while
-  also measuring downstream VBUS at the Moonlander connector.
+The 0.724 A worst-case peak exceeds the firmware's current 500 mA upstream USB
+declaration. Revision A accepts that known mismatch only within the frozen,
+measured powered-hub configuration; it must not be described as universally
+USB bus-power compliant. Size the switch, protection, traces, connectors, and
+cable path with margin above 0.724 A. Repeating startup and the five-minute
+175/255 white soak on the assembled PCB is a board bring-up acceptance test,
+not another prerequisite for schematic capture.
 
 **VFD** means vacuum fluorescent display. VFD support is deferred to revision
 B or later because these displays can require substantially more operating and
@@ -464,10 +497,12 @@ necessary but cannot prove the board will work. Before fabrication:
 1. Commit and push the known-good breadboard milestone and record its commit.
 2. Verify the frozen display connector pinout and freeze the remaining
    expansion connector pinout and GPIO assignments.
-3. Resolve the upstream budget, downstream CC advertisement, and VBUS switch
-   for the controller, Moonlander, and frozen character display.
-4. Select the regulator, crystal/load capacitors, USB protection, RP2354A
-   stepping, and assembly-supported packages.
+3. Verify the frozen TPS25821 1.5 A advertisement and VBUS implementation
+   against the powered-hub-only source constraint and measured 0.724 A peak.
+4. Verify assembly availability and temperature derating for the captured
+   1206L200SL input fuse and TPD2EUSB30DRTR USB protection; select the remaining
+   physical packages and verify the frozen TLV75533PDBVR, TPS25821, and crystal
+   selections remain available.
 5. Calculate or simulate the audio protection and anti-alias filter, then
    validate any material change to the proven input response.
 6. Freeze the enclosure and connector geometry after a component placement

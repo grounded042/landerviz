@@ -1,0 +1,14 @@
+(kicad_sch
+	(version 20250114)
+	(generator "landerviz")
+	(generator_version "1")
+	(uuid "35820063-969c-4839-872d-a5af94e3245f")
+	(paper "A4")
+	(lib_symbols)
+	(sheet_instances
+		(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c/956aed16-e56b-4e6e-84a7-00b0d342df7e"
+			(page "5")
+		)
+	)
+	(embedded_fonts no)
+)
