@@ -60,13 +60,13 @@
 			(uuid "178b8598-6f6e-4390-ae7c-59b62c7c18fa")
 		)
 		(pin "AUDIO_L_ADC" input
-			(at 25.4 52.07 180)
-			(effects (font (size 1.27 1.27)) (justify left))
+			(at 38.1 73.66 270)
+			(effects (font (size 1.27 1.27)) (justify right))
 			(uuid "ef8aa7ef-c6ba-4446-bf10-53840970477a")
 		)
 		(pin "AUDIO_R_ADC" input
-			(at 25.4 54.61 180)
-			(effects (font (size 1.27 1.27)) (justify left))
+			(at 48.26 73.66 270)
+			(effects (font (size 1.27 1.27)) (justify right))
 			(uuid "8dfe4e96-f2e4-419f-b25a-2e9e35ca93db")
 		)
 		(pin "I2C_SDA" bidirectional
@@ -180,7 +180,7 @@
 		)
 	)
 	(sheet
-		(at 25.4 76.2)
+		(at 25.4 82.55)
 		(size 50.8 25.4)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -196,7 +196,7 @@
 		)
 		(uuid "463998df-d5f4-4a44-88ba-ce34f5b44e88")
 		(property "Sheetname" "Audio frontend"
-			(at 25.4 75.4884 0)
+			(at 25.4 81.8384 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -205,13 +205,23 @@
 			)
 		)
 		(property "Sheetfile" "audio.kicad_sch"
-			(at 25.4 102.1046 0)
+			(at 25.4 108.4546 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font (size 1.27 1.27))
 				(justify left top)
 			)
+		)
+		(pin "AUDIO_L_ADC" output
+			(at 38.1 82.55 90)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "142a54b7-61b0-4182-9373-2eb329a09827")
+		)
+		(pin "AUDIO_R_ADC" output
+			(at 48.26 82.55 90)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "d0fed59d-ab88-489f-973d-114295653f1e")
 		)
 		(instances
 			(project "landerviz"
@@ -222,7 +232,7 @@
 		)
 	)
 	(sheet
-		(at 88.9 76.2)
+		(at 88.9 82.55)
 		(size 50.8 25.4)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -238,7 +248,7 @@
 		)
 		(uuid "956aed16-e56b-4e6e-84a7-00b0d342df7e")
 		(property "Sheetname" "Controls and display"
-			(at 88.9 75.4884 0)
+			(at 88.9 81.8384 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -247,7 +257,7 @@
 			)
 		)
 		(property "Sheetfile" "controls_display.kicad_sch"
-			(at 88.9 102.1046 0)
+			(at 88.9 108.4546 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -282,6 +292,16 @@
 		(pts (xy 76.2 49.53) (xy 88.9 49.53))
 		(stroke (width 0) (type default))
 		(uuid "68a2a470-33d8-498c-aa84-b274ed88e5ab")
+	)
+	(wire
+		(pts (xy 38.1 73.66) (xy 38.1 82.55))
+		(stroke (width 0) (type default))
+		(uuid "c07d5a84-e302-420b-b5a5-3904110ddf26")
+	)
+	(wire
+		(pts (xy 48.26 73.66) (xy 48.26 82.55))
+		(stroke (width 0) (type default))
+		(uuid "9b9770cd-80be-40ec-b545-b3595395c976")
 	)
 	(sheet_instances
 		(path "/" (page "1"))

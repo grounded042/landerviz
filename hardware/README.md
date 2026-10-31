@@ -49,14 +49,14 @@ The initial hierarchy deliberately separates review domains:
 |---|---|
 | `mcu.kicad_sch` | RP2354A, 12 MHz clock, core supply, decoupling, RUN, BOOTSEL, and SWD |
 | `usb_power.kicad_sch` | both USB-C ports, native and PIO USB data paths, 5 V protection/switching, 3.3 V regulation, and bulk capacitance |
-| `audio.kicad_sch` | stereo TRS input, per-channel bias, protection, anti-alias filters, ADC supply, and test points |
+| `audio.kicad_sch` | stereo TRS input, per-channel bias, protection, anti-alias filters, ADC inputs, and test points |
 | `controls_display.kicad_sch` | EC11 encoder, push switch, I2C level translation, LCD connector, and digital expansion footprint |
 
 Capture proceeds in reviewable slices. Component values that remain open in
 `PCB.md` must be selected from calculations and manufacturer documentation,
 not copied from an unrelated example.
 
-## Current capture status — 2026-10-29
+## Current capture status — 2026-10-31
 
 ### MCU core
 
@@ -107,11 +107,42 @@ style remain deliberately unassigned. Those choices depend on the mechanical
 placement and JLCPCB assembly review and are fabrication blockers, not open
 circuit-topology questions.
 
+### Stereo audio frontend
+
+The audio sheet is populated, electrically connected to GPIO26/ADC0 and
+GPIO27/ADC1, and clean under the project-level electrical rules check. Tip is
+left, ring is right, and sleeve is ground on J3. Each channel is independent:
+
+- A 10 microfarad coupling capacitor blocks direct current from the mixer. If
+  the selected part is polarized, its positive terminal faces the bias node.
+- Two 22 kilohm, 1% resistors bias that node near half of 3.3 V. They present
+  an approximately 11 kilohm load; with 10 microfarads, the nominal high-pass
+  corner is about 1.45 Hz.
+- A 10 kilohm, 1% series resistor and 2.2 nanofarad C0G, 5% capacitor form a
+  first-order low-pass at about 7.2 kHz. This is intentional modest
+  anti-aliasing for the firmware's 15.625 kHz-per-channel sampling, whose
+  Nyquist frequency is about 7.8 kHz.
+- A BAT54S-7-F dual Schottky diode in SOT-23 clamps the ADC node toward ground
+  and 3.3 V. The series resistor limits fault and unpowered-input current. The
+  package and ordering code match the
+  [Diodes Incorporated datasheet](https://www.diodes.com/datasheet/download/BAT54S.pdf);
+  leakage and assembly stock remain bill-of-materials release checks.
+- TP7/TP9 expose the left/right bias nodes; TP8/TP10 expose the left/right ADC
+  nodes.
+
+The exact J3 jack footprint, C26/C27 10 microfarad package, and physical
+test-pad style remain unassigned pending connector, enclosure, and assembly
+review. Assembled-board bring-up must confirm bias voltage, silence/noise,
+bass response, high-frequency texture, and clipping before firmware gain or
+calibration constants are retuned.
+
 ### Expected project-level findings
 
-KiCad currently reports nine unconnected hierarchical pins and their matching
-isolated-label warnings because the audio and controls/display sheets are still
-blank. It also reports the known RP2354A library-copy warning: the installed
-symbol is derived from RP2350A while the MCU sheet embeds the reviewed RP2354A
-pin definition. These expected findings must disappear or be explicitly
-resolved before final schematic approval; none comes from the USB/power sheet.
+KiCad currently reports eight unconnected hierarchical pins and their matching
+isolated-label warnings because the controls/display sheet is still blank:
+I2C data and clock, the encoder's A/B/switch signals, two expansion GPIOs, and
+display 5 V. It also reports the known RP2354A library-copy warning: the
+installed symbol is derived from RP2350A while the MCU sheet embeds the
+reviewed RP2354A pin definition. These expected findings must disappear or be
+explicitly resolved before final schematic approval; none comes from the
+MCU, USB/power, or audio circuit itself.

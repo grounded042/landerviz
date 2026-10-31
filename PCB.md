@@ -332,45 +332,61 @@ startup current than the revision-A character liquid-crystal display (LCD).
 Adding one later requires a fresh power budget, interface-voltage review, and
 connector review.
 
-## Audio frontend — frozen topology, open protection/filter values
+## Audio frontend — frozen
 
 The 3.5 mm tip/ring/sleeve (TRS) stereo jack and both analog input stages are
 on the main PCB. There is no audio codec in revision A and no pluggable analog
 submodule.
 
-Each channel retains its own circuit:
+Each channel uses the following passive circuit:
 
 ```text
-3.3 V
-  |
-100k
-  |
-  +---- ADC node ---- GPIO26 or GPIO27
-  |
-100k
-  |
- GND
-
-TRS signal ---- 10 uF coupling capacitor ---- ADC node
+                         3.3 V
+                           |
+                         22k 1%
+                           |
+TRS signal -- 10 uF -- bias node -- 10k 1% -- ADC node -- GPIO26 or GPIO27
+                           |                     |  |
+                         22k 1%               2.2nF BAT54S rail clamps
+                           |                     |
+                          GND                   GND
 ```
 
 The channels must not share a bias node. If polarized capacitors are used,
-their positive terminals face the 1.65 V ADC nodes. Use matched 1% bias
-resistors. Firmware currently adds 8x, or approximately +18 decibels (dB),
-visualization gain because the proven passive mixer attenuates its output. Clip
-indication is based on the physical ADC input before that gain.
+their positive terminals face the bias nodes. The two matched 22 kilohm, 1%
+resistors present an approximately 11 kilohm audio load and set the nominal
+bias near half the 3.3 V rail. This is deliberately lower impedance than the
+prototype's 100 kilohm pair because RP2354A specifies approximately 100
+kilohms of ADC input impedance; a bias network of the same order would not
+control the midpoint robustly.
 
-Revision A should add appropriately sized input protection and an anti-alias
-low-pass filter for the 15.625 kHz-per-channel sample rate. **Anti-alias** means
-attenuating frequencies above the approximately 7.8 kHz Nyquist limit so they
-do not appear as false lower frequencies after sampling. These additions were
-not part of the proven breadboard path: calculate or simulate their values,
-confirm that they do not load the mixer or erase useful spectrum, and validate
-them before ordering.
+The 10 microfarad coupling capacitor and 11 kilohm bias load form an
+approximately 1.45 Hz high-pass response, preserving the bass range. The 10
+kilohm series resistor and 2.2 nanofarad C0G capacitor form an approximately
+7.2 kHz first-order low-pass response. **Anti-alias** means attenuating
+frequencies above the approximately 7.8 kHz Nyquist limit so they do not appear
+as false lower frequencies after sampling. This one-resistor/one-capacitor
+stage gives modest rather than brick-wall rejection, while avoiding an active
+operational-amplifier filter and preserving revision A's minimal hardware.
+
+A BAT54S dual Schottky diode on each ADC node clamps positive and negative
+fault excursions toward the 3.3 V and ground rails. The 10 kilohm series
+resistor limits clamp and unpowered-input current. Schematic capture uses the
+Diodes Incorporated `BAT54S-7-F` in SOT-23 as the current candidate; assembly
+availability and leakage specifications remain bill-of-materials release
+checks.
+
+Firmware currently adds 8x, or approximately +18 decibels (dB), visualization
+gain because the proven passive mixer attenuates its output. Clip indication is
+based on the physical ADC input before that gain. The PCB filter was not part
+of the breadboard response, so assembled-board bring-up must compare its bass,
+high-frequency texture, silence calibration, and clip behavior with the
+accepted prototype before firmware constants are retuned.
 
 Keep ADC nodes and input traces short and away from USB data, display clocks,
 and Moonlander/display power. Add labeled test points for left ADC, right ADC,
-the 1.65 V bias nodes, 3.3 V, 5 V, and ground.
+both bias nodes, 3.3 V, 5 V, and ground. The exact TRS jack footprint and 10
+microfarad capacitor package remain mechanical and assembly-review blockers.
 
 ## Grounding — frozen intent, corrected PCB implementation
 
