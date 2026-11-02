@@ -149,10 +149,12 @@ These assignments are frozen:
 |---|---:|
 | PIO-USB host D+ | GPIO0 through 22 ohms |
 | PIO-USB host D- | GPIO1 through 22 ohms |
-| Display/expansion I2C1 SDA | GPIO2 |
-| Display/expansion I2C1 SCL | GPIO3 |
+| Display I2C1 SDA | GPIO2 |
+| Display I2C1 SCL | GPIO3 |
 | Rotary encoder A | GPIO4 |
 | Rotary encoder B | GPIO5 |
+| Diagnostic test pad | GPIO6 |
+| Diagnostic test pad | GPIO7 |
 | Left audio | GPIO26 / ADC0 |
 | Right audio | GPIO27 / ADC1 |
 | Rotary encoder push switch | GPIO8 |
@@ -161,13 +163,15 @@ Encoder A, encoder B, and the push switch use internal pull-up resistors and
 share a digital-ground common. The validated EC11 produces one count per
 detent with no rejected transitions. Turning selects the visualization, a
 short press cycles its color scheme, and holding for more than 800 ms opens the
-LCD menu.
+LCD menu. Revision A preserves that circuit directly: it does not add external
+pull-ups, resistor-capacitor debounce networks, or other filtering to the
+encoder signals.
 
 GPIO2 through GPIO7 drove the initial parallel-LCD prototype. The validated
 revision-A breadboard configuration now uses GPIO2 and GPIO3 as the native
-I2C1 data and clock pins shared by the display port and the 3.3 V digital
-expansion footprint. GPIO4 and GPIO5 are now frozen for the rotary encoder;
-GPIO6 and GPIO7 remain available for the expansion interface.
+I2C1 data and clock pins for the display port. GPIO4 and GPIO5 are frozen for
+the rotary encoder. GPIO6 and GPIO7 terminate only at labeled test pads; they
+are not part of a supported revision-A expansion interface.
 
 ## USB-C connectors — frozen
 
@@ -450,38 +454,49 @@ RP2354A pins are not 5 V tolerant. The main board therefore includes
 bidirectional, open-drain-compatible level translation between the internal
 3.3 V I2C1 bus and the external 5 V display bus. **Open-drain** means a device
 can pull a signal low but relies on a resistor to return it high, allowing
-multiple I2C devices to share the wire safely. Select the exact translator and
-pull-up resistor values during schematic capture after inspecting the delivered
-backpacks; do not assume their fitted pull-up values.
+multiple I2C devices to share the wire safely.
+
+Revision A reproduces the proven breakout topology with one BSS138 N-channel
+**MOSFET** (metal-oxide-semiconductor field-effect transistor) per bus signal.
+Each MOSFET's source is on the 3.3 V side, drain is on the 5 V display side,
+and gate is tied to 3.3 V. R20 and R21 are populated 4.7
+kilohm, 1% pull-ups from the internal SDA and SCL signals to 3.3 V. R22 and R23
+are matching **DNP** (do not populate) footprints from the external signals to
+the protected display 5 V rail. The accepted backpack already supplies the 5 V
+pull-ups; the optional footprints allow a future compatible backpack without
+pull-ups to be supported without a PCB revision. Do not populate them blindly:
+parallel pull-ups reduce the resistance and increase the current a device must
+sink when it drives the bus low.
+
+The schematic uses the standard BSS138 gate/source/drain pin order with an
+SOT-23 (small-outline transistor) footprint. The exact manufacturer orderable
+part remains an assembly availability check. Assembled-board bring-up must
+verify that both lines idle at the correct side-specific voltage and that
+communication remains reliable at 100 kHz before the translator is accepted.
 
 Firmware probes the common PCF8574T address `0x27` and PCF8574A address `0x3F`,
 then uses the verified backpack-to-LCD pin mapping. The delivered Teyleten
 Robot module was validated at `0x27` with the common P0=RS, P2=enable,
 P3=backlight, and P4 through P7=data mapping. Contrast, backlight-on operation,
 100 kHz communication, differential screen updates, and approximately 30 FPS
-keyboard output were demonstrated on the RP2040 breadboard. Confirm the
-backpack's fitted pull-ups and deliberately test backlight-off control before
-schematic approval. The display driver becomes a replaceable firmware
-interface even though revision A ships only this character-display backend.
+keyboard output were demonstrated on the RP2040 breadboard. Deliberately test
+backlight-off control during assembled-board bring-up. The display driver
+becomes a replaceable firmware interface even though revision A ships only
+this character-display backend.
 
-## Digital expansion footprint — frozen presence, open connector
+## Digital expansion — deferred beyond revision A
 
-Provide an unpopulated expansion footprint on the digital side for a future
-codec or microphone module. **I2S** means Inter-IC Sound, a clocked digital
-audio bus. The footprint should expose:
+Revision A has no digital expansion connector. A useful future audio-module
+interface would need enough pins for **I2S** (Inter-IC Sound: data, bit clock,
+and word-select clock), I2C, power, ground, and a spare signal. The two
+otherwise-free GPIOs do not provide that interface cleanly, and reserving a
+connector without a selected module would consume scarce board edge and imply
+compatibility that has not been designed.
 
-- I2S data, bit clock, and word-select clock;
-- I2C data and clock;
-- 3.3 V;
-- 5 V;
-- ground; and
-- at least one spare GPIO.
-
-No analog audio crosses this connector. The expansion footprint shares the
-internal 3.3 V I2C1 bus on GPIO2/GPIO3 with the display level translator. Its
-exact connector and remaining GPIO assignments remain open. If this footprint
-prevents the main board from meeting the size target, return for an explicit
-scope decision rather than silently increasing board size.
+GPIO6 and GPIO7 remain accessible as small labeled test pads for diagnostics
+or revision-A rework. They are not a supported peripheral interface. A future
+codec, microphone, or broader display interface belongs in a separately
+specified revision B or C.
 
 ## Mechanical target
 
@@ -495,7 +510,7 @@ That is a placement target, not yet a guaranteed outline. It must accommodate:
 - protected Moonlander and display power paths;
 - the bulk capacitor;
 - mode, BOOTSEL, and reset controls;
-- display and expansion connectors; and
+- the display connector; and
 - debug/test access.
 
 Freeze connector direction, enclosure geometry, mounting holes, control
@@ -511,16 +526,17 @@ computer-aided design tool's automated schematic and layout checks. They are
 necessary but cannot prove the board will work. Before fabrication:
 
 1. Commit and push the known-good breadboard milestone and record its commit.
-2. Verify the frozen display connector pinout and freeze the remaining
-   expansion connector pinout and GPIO assignments.
+2. Verify J4's physical pin-one orientation against its final footprint and
+   verify GPIO6/GPIO7 test-pad placement remains probe-accessible.
 3. Verify the frozen TPS25821 1.5 A advertisement and VBUS implementation
    against the powered-hub-only source constraint and measured 0.724 A peak.
 4. Verify assembly availability and temperature derating for the captured
    1206L200SL input fuse and TPD2EUSB30DRTR USB protection; select the remaining
    physical packages and verify the frozen TLV75533PDBVR, TPS25821, and crystal
    selections remain available.
-5. Calculate or simulate the audio protection and anti-alias filter, then
-   validate any material change to the proven input response.
+5. Verify the captured audio protection and first-order anti-alias filter,
+   then validate their response on the assembled revision before retuning
+   firmware.
 6. Freeze the enclosure and connector geometry after a component placement
    study confirms the 35–40 mm target is credible.
 7. Check every RP2354A support net and boot setting against Raspberry Pi's

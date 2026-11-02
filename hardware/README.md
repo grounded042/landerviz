@@ -50,18 +50,18 @@ The initial hierarchy deliberately separates review domains:
 | `mcu.kicad_sch` | RP2354A, 12 MHz clock, core supply, decoupling, RUN, BOOTSEL, and SWD |
 | `usb_power.kicad_sch` | both USB-C ports, native and PIO USB data paths, 5 V protection/switching, 3.3 V regulation, and bulk capacitance |
 | `audio.kicad_sch` | stereo TRS input, per-channel bias, protection, anti-alias filters, ADC inputs, and test points |
-| `controls_display.kicad_sch` | EC11 encoder, push switch, I2C level translation, LCD connector, and digital expansion footprint |
+| `controls_display.kicad_sch` | EC11 encoder, push switch, I2C level translation, and LCD connector |
 
 Capture proceeds in reviewable slices. Component values that remain open in
 `PCB.md` must be selected from calculations and manufacturer documentation,
 not copied from an unrelated example.
 
-## Current capture status — 2026-10-31
+## Current capture status — 2026-11-02
 
 ### MCU core
 
 The MCU-core sheet is populated and the project-level MCU sheet symbol exposes
-the frozen USB, audio, encoder, display, and expansion signals. The capture
+the frozen USB, audio, encoder, and display signals. The capture
 includes the RP2354A, its 1.1 V switching-regulator network, supply bypassing,
 12 MHz crystal, BOOTSEL and reset buttons, Serial Wire Debug (SWD) pads, native
 USB and PIO-USB series resistors, and explicit no-connect flags on unused pins.
@@ -136,13 +136,39 @@ review. Assembled-board bring-up must confirm bias voltage, silence/noise,
 bass response, high-frequency texture, and clipping before firmware gain or
 calibration constants are retuned.
 
+### Encoder and external display
+
+The controls/display sheet now captures the proven EC11 encoder and revision-A
+serial-display interface:
+
+- SW3 connects encoder A, encoder B, and the push switch to GPIO4, GPIO5, and
+  GPIO8. Its encoder common and other switch terminal return to digital ground.
+  Firmware supplies all three pull-ups and debounce/decoding; the PCB adds no
+  filtering that could change the validated behavior.
+- Q1 and Q2 are BSS138 N-channel MOSFETs
+  (metal-oxide-semiconductor field-effect transistors) in SOT-23
+  (small-outline transistor) packages. Their sources face the 3.3 V MCU bus,
+  drains face the 5 V display bus, and gates connect to 3.3 V. This is the same
+  bidirectional open-drain I2C (Inter-Integrated Circuit) level-shifter
+  topology demonstrated by the breadboard breakout. The schematic pin order
+  matches the
+  [onsemi BSS138 datasheet](https://www.onsemi.com/download/data-sheet/pdf/bss138-d.pdf).
+- R20/R21 are populated 4.7 kilohm, 1% pull-ups on the 3.3 V side. R22/R23 are
+  matching DNP, or do-not-populate, 5 V-side options because the accepted LCD
+  backpack already contains that side's pull-ups.
+- J4's logical pinout is frozen as pin 1 ground, pin 2 protected display 5 V,
+  pin 3 SDA, and pin 4 SCL. Its exact JST-PH footprint and cable-entry
+  direction remain mechanical decisions.
+
+The exact SW3 encoder footprint, J4 connector footprint, and BSS138
+manufacturer orderable part remain release blockers. Revision A intentionally
+has no digital expansion connector; GPIO6 and GPIO7 terminate at labeled test
+pads for diagnostics or rework only.
+
 ### Expected project-level findings
 
-KiCad currently reports eight unconnected hierarchical pins and their matching
-isolated-label warnings because the controls/display sheet is still blank:
-I2C data and clock, the encoder's A/B/switch signals, two expansion GPIOs, and
-display 5 V. It also reports the known RP2354A library-copy warning: the
+KiCad currently reports only the known RP2354A library-copy warning: the
 installed symbol is derived from RP2350A while the MCU sheet embeds the
-reviewed RP2354A pin definition. These expected findings must disappear or be
-explicitly resolved before final schematic approval; none comes from the
-MCU, USB/power, or audio circuit itself.
+reviewed RP2354A pin definition. It must be explicitly resolved before final
+schematic approval; no current finding comes from the USB/power, audio,
+encoder, display, or GPIO6/GPIO7 test-pad circuits.

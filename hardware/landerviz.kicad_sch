@@ -94,16 +94,6 @@
 			(effects (font (size 1.27 1.27)) (justify right))
 			(uuid "9f56bfed-3e4a-4c42-b8c5-9e800f06fc4f")
 		)
-		(pin "EXP_GPIO6" bidirectional
-			(at 76.2 64.77 0)
-			(effects (font (size 1.27 1.27)) (justify right))
-			(uuid "75c2b674-9678-4fe3-8b64-e1398e225555")
-		)
-		(pin "EXP_GPIO7" bidirectional
-			(at 76.2 67.31 0)
-			(effects (font (size 1.27 1.27)) (justify right))
-			(uuid "9136048a-a341-4dac-ac9b-012406e121eb")
-		)
 		(instances
 			(project "landerviz"
 				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c"
@@ -265,6 +255,36 @@
 				(justify left top)
 			)
 		)
+		(pin "I2C_SDA" bidirectional
+			(at 88.9 87.63 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "f4141f7f-98e6-4bf9-af91-a4c0386894ea")
+		)
+		(pin "I2C_SCL" bidirectional
+			(at 88.9 90.17 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "fbb09361-ee2e-4099-a944-af748b2cfb42")
+		)
+		(pin "ENC_A" output
+			(at 88.9 95.25 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "4a4b6438-6e72-4abf-b609-1afe42b74127")
+		)
+		(pin "ENC_B" output
+			(at 88.9 97.79 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "8dc2f1d5-a4b1-47e4-baea-d80b93794614")
+		)
+		(pin "ENC_SW" output
+			(at 88.9 100.33 180)
+			(effects (font (size 1.27 1.27)) (justify left))
+			(uuid "cf1520e9-4a46-41a8-9915-9b4e8d0ef05b")
+		)
+		(pin "DISPLAY_5V" input
+			(at 139.7 87.63 0)
+			(effects (font (size 1.27 1.27)) (justify right))
+			(uuid "773c4e9e-a4eb-4212-a84f-130f2fa9b549")
+		)
 		(instances
 			(project "landerviz"
 				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c"
@@ -302,6 +322,126 @@
 		(pts (xy 48.26 73.66) (xy 48.26 82.55))
 		(stroke (width 0) (type default))
 		(uuid "9b9770cd-80be-40ec-b545-b3595395c976")
+	)
+	(wire
+		(pts (xy 76.2 52.07) (xy 81.28 52.07))
+		(stroke (width 0) (type default))
+		(uuid "763621c0-e4ba-4028-9645-414426de28b8")
+	)
+	(label "I2C_SDA"
+		(at 81.28 52.07 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "b2e43465-6242-4328-b241-e9c68abf0f98")
+	)
+	(wire
+		(pts (xy 76.2 54.61) (xy 81.28 54.61))
+		(stroke (width 0) (type default))
+		(uuid "9b358542-b0df-4692-92d7-c6269dcfc9f1")
+	)
+	(label "I2C_SCL"
+		(at 81.28 54.61 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "26b10dde-bfd8-4d33-b434-0b1d15172956")
+	)
+	(wire
+		(pts (xy 76.2 57.15) (xy 81.28 57.15))
+		(stroke (width 0) (type default))
+		(uuid "24045160-7e1e-49fa-98c2-1fd036bc0266")
+	)
+	(label "ENC_A"
+		(at 81.28 57.15 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "bbba89ce-6215-412b-bea8-f29cbe8e1314")
+	)
+	(wire
+		(pts (xy 76.2 59.69) (xy 81.28 59.69))
+		(stroke (width 0) (type default))
+		(uuid "d8557e09-44c1-4903-a66a-a7a5e4d88641")
+	)
+	(label "ENC_B"
+		(at 81.28 59.69 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "c05f21e1-1997-427a-b189-e41721b844d3")
+	)
+	(wire
+		(pts (xy 76.2 62.23) (xy 81.28 62.23))
+		(stroke (width 0) (type default))
+		(uuid "a58f672d-d685-426b-bef9-91f0e5a9712b")
+	)
+	(label "ENC_SW"
+		(at 81.28 62.23 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "5f9f7496-41cd-4bd3-88c0-0db10ff19b83")
+	)
+	(wire
+		(pts (xy 83.82 87.63) (xy 88.9 87.63))
+		(stroke (width 0) (type default))
+		(uuid "2abf862b-d02a-429a-a665-a6b2a1f642cc")
+	)
+	(label "I2C_SDA"
+		(at 83.82 87.63 180)
+		(effects (font (size 1 1)) (justify right bottom))
+		(uuid "37bb0458-cd4f-4ad0-a6cb-8feb47cf3d26")
+	)
+	(wire
+		(pts (xy 83.82 90.17) (xy 88.9 90.17))
+		(stroke (width 0) (type default))
+		(uuid "3ddd41c5-7968-4b23-807d-f1daffb5b07c")
+	)
+	(label "I2C_SCL"
+		(at 83.82 90.17 180)
+		(effects (font (size 1 1)) (justify right bottom))
+		(uuid "997158c7-48b7-4d53-8ce3-608e63d9c1be")
+	)
+	(wire
+		(pts (xy 83.82 95.25) (xy 88.9 95.25))
+		(stroke (width 0) (type default))
+		(uuid "e1efb732-f3bb-45b9-9420-5290b32e4d9e")
+	)
+	(label "ENC_A"
+		(at 83.82 95.25 180)
+		(effects (font (size 1 1)) (justify right bottom))
+		(uuid "02b0ea5c-5272-4103-bbdf-f096ef3ed56a")
+	)
+	(wire
+		(pts (xy 83.82 97.79) (xy 88.9 97.79))
+		(stroke (width 0) (type default))
+		(uuid "2a83deeb-408b-45c9-b42b-01f252e3ab30")
+	)
+	(label "ENC_B"
+		(at 83.82 97.79 180)
+		(effects (font (size 1 1)) (justify right bottom))
+		(uuid "d75744ad-da0e-4484-925d-694758b02523")
+	)
+	(wire
+		(pts (xy 83.82 100.33) (xy 88.9 100.33))
+		(stroke (width 0) (type default))
+		(uuid "fbf3d8d6-ce23-4513-8406-01070647e2a6")
+	)
+	(label "ENC_SW"
+		(at 83.82 100.33 180)
+		(effects (font (size 1 1)) (justify right bottom))
+		(uuid "d95d482b-33a3-449f-ad6a-7280a9b0765a")
+	)
+	(wire
+		(pts (xy 139.7 59.69) (xy 144.78 59.69))
+		(stroke (width 0) (type default))
+		(uuid "80f9079f-7807-4a54-a75d-2c2d2ce74ac3")
+	)
+	(label "DISPLAY_5V"
+		(at 144.78 59.69 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "07b35687-11d8-4a74-a297-369b1cb2a721")
+	)
+	(wire
+		(pts (xy 139.7 87.63) (xy 144.78 87.63))
+		(stroke (width 0) (type default))
+		(uuid "aa32f415-4b93-4cc7-894e-902be9bebdd1")
+	)
+	(label "DISPLAY_5V"
+		(at 144.78 87.63 0)
+		(effects (font (size 1 1)) (justify left bottom))
+		(uuid "af3191fc-8ebc-452d-8f6b-698199de1fe6")
 	)
 	(sheet_instances
 		(path "/" (page "1"))

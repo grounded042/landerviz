@@ -6352,27 +6352,89 @@
 		)
 		(uuid "e116b474-d028-4be6-ba0b-e8378a37845b")
 	)
-	(hierarchical_label "EXP_GPIO6"
-		(shape bidirectional)
-		(at 187.96 91.44 0)
-		(effects
-			(font
-				(size 1 1)
-			)
-			(justify left)
-		)
+	(symbol
+		(lib_id "Connector:TestPoint")
+		(at 187.96 91.44 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced no)
 		(uuid "b8deb9d6-2ef5-4d96-888e-b462ebf87dfb")
-	)
-	(hierarchical_label "EXP_GPIO7"
-		(shape bidirectional)
-		(at 187.96 93.98 0)
-		(effects
-			(font
-				(size 1 1)
+		(property "Reference" "TP11"
+			(at 187.96 84.582 90)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
 			)
-			(justify left)
 		)
+		(property "Value" "GPIO6"
+			(at 187.96 86.36 90)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(pin "1"
+			(uuid "8d1fd4d5-7d13-48ce-a1e5-a143e1df02f8")
+		)
+		(instances
+			(project "landerviz"
+				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c/f499eeb9-a26d-41ed-9214-0657c7dedbd1"
+					(reference "TP11")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector:TestPoint")
+		(at 187.96 93.98 270)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced no)
 		(uuid "74bb1c95-b42e-45ba-a4c1-0e565373c92e")
+		(property "Reference" "TP12"
+			(at 187.96 100.838 90)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Value" "GPIO7"
+			(at 187.96 99.06 90)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(pin "1"
+			(uuid "d864d727-d660-4bf3-9213-ed90a02f37a6")
+		)
+		(instances
+			(project "landerviz"
+				(path "/9a4fda1a-f901-4dc8-867c-dd55c83f5a2c/f499eeb9-a26d-41ed-9214-0657c7dedbd1"
+					(reference "TP12")
+					(unit 1)
+				)
+			)
+		)
 	)
 	(hierarchical_label "ENC_SW"
 		(shape input)
