@@ -66,11 +66,12 @@ includes the RP2354A, its 1.1 V switching-regulator network, supply bypassing,
 12 MHz crystal, BOOTSEL and reset buttons, Serial Wire Debug (SWD) pads, native
 USB and PIO-USB series resistors, and explicit no-connect flags on unused pins.
 
-The exact L1 inductor and Y1 crystal manufacturer part numbers are stored as
-hidden schematic fields. Their footprints, along with the reset/BOOTSEL switch
-and SWD test-pad footprints, remain deliberately unassigned until the sourcing
-and assembly review. The ordinary 0402 resistors/capacitors and RP2354A package
-use standard KiCad footprints.
+The exact L1 inductor, Y1 crystal, reset/BOOTSEL switches, RP2354A, and ordinary
+passives now have manufacturer, JLCPCB/LCSC catalog, and footprint assignments.
+L1 uses a project-local footprint copied from Abracon's land pattern; its marked
+terminal is pad 2 on the RP2354 switch-node side. The Serial Wire Debug (SWD)
+and rail test points are 2 mm exposed surface pads and require no purchased
+component.
 
 ### USB and power
 
@@ -85,10 +86,10 @@ The USB/power sheet is electrically captured and connected to the MCU sheet:
   resistors.
 - Each USB data pair has a TPD2EUSB30DRTR two-channel electrostatic-discharge
   (ESD) protector. ESD means a short high-voltage event such as a static shock.
-- A 2 A-hold Littelfuse 1206L200SL resettable polymer fuse is the current input
-  protection candidate. It avoids the temperature-derating problem of using a
-  nominal 1.5 A part on a port that advertises 1.5 A; stock and worst-case
-  temperature still require review before the bill of materials is released.
+- A stocked 2 A-hold LUTE `1206L200/16NR` resettable polymer fuse protects the
+  input. It avoids the temperature-derating problem of using a nominal 1.5 A
+  part on a port that advertises 1.5 A; worst-case temperature still requires
+  review before the bill of materials is released.
 - The proven 470 microfarad reservoir is on the protected, always-powered side
   of the TPS25821. Its switched output has 4.7 microfarads, below the
   controller's 10 microfarad limit.
@@ -101,11 +102,13 @@ was also checked to confirm that connector-facing data nets stop at the correct
 side of each series resistor; the corresponding chip-facing nets reach only
 the intended native-USB or PIO-USB pin.
 
-The USB-C connector footprints, TPS25821 WSON land pattern, 470 microfarad
-capacitor footprint, display-branch fuse part/footprint, and physical test-pad
-style remain deliberately unassigned. Those choices depend on the mechanical
-placement and JLCPCB assembly review and are fabrication blockers, not open
-circuit-topology questions.
+Both USB-C ports use the GCT `USB4105-GF-A-060`. The TPS25821 uses a
+project-local footprint built from TI's `DSS0012B` recommended WSON land pattern;
+**WSON** means a very small leadless package with an exposed thermal pad. The
+470 microfarad reservoir, display-branch fuse, reset/BOOTSEL switches, crystal,
+inductor, and test-pad style are also assigned. Placement, cable clearance, and
+assembly-orientation review remain fabrication gates, but no schematic part is
+waiting for a footprint.
 
 ### Stereo audio frontend
 
@@ -130,21 +133,29 @@ left, ring is right, and sleeve is ground on J3. Each channel is independent:
 - TP7/TP9 expose the left/right bias nodes; TP8/TP10 expose the left/right ADC
   nodes.
 
-The exact J3 jack footprint, C26/C27 10 microfarad package, and physical
-test-pad style remain unassigned pending connector, enclosure, and assembly
-review. Assembled-board bring-up must confirm bias voltage, silence/noise,
+J3 is frozen as the CUI `SJ1-3523N` right-angle through-hole jack using KiCad's
+matching `Jack_3.5mm_CUI_SJ1-3523N_Horizontal` footprint. JLCPCB/LCSC catalog
+identifier `C20182914` records the sourcing target; assembly inventory must be
+rechecked when the order is released. C26/C27 are polarized 10 microfarad,
+16 V surface-mount electrolytics, with the positive terminal toward the biased
+ADC node. Audio test points use the same 2 mm exposed pads as the power and SWD
+points. Assembled-board bring-up must confirm bias voltage, silence/noise,
 bass response, high-frequency texture, and clipping before firmware gain or
 calibration constants are retuned.
 
 ### Encoder and external display
 
-The controls/display sheet now captures the proven EC11 encoder and revision-A
-serial-display interface:
+The controls/display sheet now captures the proven encoder circuit and
+revision-A serial-display interface:
 
-- SW3 connects encoder A, encoder B, and the push switch to GPIO4, GPIO5, and
+- SW3 is frozen as the top-facing Bourns `PEC12R-4120F-S0012`, JLCPCB/LCSC
+  `C143801`: 12 detents, 12 pulses, a push switch, and a 20 mm shaft. It
+  connects encoder A, encoder B, and the push switch to GPIO4, GPIO5, and
   GPIO8. Its encoder common and other switch terminal return to digital ground.
   Firmware supplies all three pull-ups and debounce/decoding; the PCB adds no
-  filtering that could change the validated behavior.
+  filtering that could change the validated behavior. This no-bushing variant
+  requires PCB/enclosure support close to the control so that repeated pushes
+  do not flex the board.
 - Q1 and Q2 are BSS138 N-channel MOSFETs
   (metal-oxide-semiconductor field-effect transistors) in SOT-23
   (small-outline transistor) packages. Their sources face the 3.3 V MCU bus,
@@ -156,14 +167,25 @@ serial-display interface:
 - R20/R21 are populated 4.7 kilohm, 1% pull-ups on the 3.3 V side. R22/R23 are
   matching DNP, or do-not-populate, 5 V-side options because the accepted LCD
   backpack already contains that side's pull-ups.
-- J4's logical pinout is frozen as pin 1 ground, pin 2 protected display 5 V,
-  pin 3 SDA, and pin 4 SCL. Its exact JST-PH footprint and cable-entry
-  direction remain mechanical decisions.
+- J4 is the right-angle JST `S4B-PH-K-S(LF)(SN)`, JLCPCB/LCSC `C157926`, with
+  the matching KiCad footprint. Its logical pinout is pin 1 ground, pin 2
+  protected display 5 V, pin 3 SDA, and pin 4 SCL. The cable has a `PHR-4`
+  female JST housing at the board and one 1x4 2.54 mm female socket at the
+  LCD backpack. LCSC custom cable assembly and combined JLCPCB shipping are
+  the intended procurement path; cable length waits for enclosure placement.
+  Individual 2.54 mm female Dupont jumper wires can substitute during bench
+  testing only; they do not fit the board's 2.0 mm JST connector directly and
+  do not provide keying or retention in the enclosure.
 
-The exact SW3 encoder footprint, J4 connector footprint, and BSS138
-manufacturer orderable part remain release blockers. Revision A intentionally
-has no digital expansion connector; GPIO6 and GPIO7 terminate at labeled test
-pads for diagnostics or rework only.
+SW3 uses the project-local
+`RotaryEncoder_Bourns_Vertical_PEC12R-4x20F-Sxxxx` footprint. Its five
+electrical holes, two retaining-tab slots, body outline, and `A-C-B` pin order
+were captured from Bourns' configuration-4 mechanical drawing and checked by
+exporting the footprint from KiCad. Confirm the physical sample and JLCPCB's
+assembly orientation before release. Q1/Q2 are frozen as onsemi `BSS138LT1G`
+(`C82045`). Revision A intentionally has no digital expansion
+connector; GPIO6 and GPIO7 terminate at labeled test pads for diagnostics or
+rework only.
 
 ### Expected project-level findings
 

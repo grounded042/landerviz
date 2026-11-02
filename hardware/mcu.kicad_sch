@@ -2826,6 +2826,7 @@
 				(justify left)
 			)
 		)
+		(property "LCSC" "C41378174" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "6"
 			(uuid "870c010a-9f08-427b-83a7-c30e5e6c72aa")
 		)
@@ -3055,6 +3056,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "CCTC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TCC0402X5R475M6R3AT" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C380302" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "f92f3168-451e-4b7d-90fe-658b37c44de1")
 		)
@@ -3107,6 +3111,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "f5ab20a4-30a7-4207-8d0f-cb39118cb826")
 		)
@@ -3159,6 +3166,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "2d842868-862a-4589-b42c-607259fc76c7")
 		)
@@ -3211,6 +3221,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "7a4cc618-ad64-453b-9ce2-d80f3d44eac7")
 		)
@@ -3263,6 +3276,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "f071852e-167f-41c1-8ad2-56769b277587")
 		)
@@ -3315,6 +3331,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "30f6ed88-73d5-4fdf-97cd-2e2c17b30b99")
 		)
@@ -3367,6 +3386,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "03b55999-6c89-4a00-9d97-79d6e296b22d")
 		)
@@ -3419,6 +3441,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "8d77d4e9-d4d6-4a20-94de-63a2f738e3cf")
 		)
@@ -3471,6 +3496,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "CCTC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TCC0402X5R106M6R3ATR" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C48543727" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "604ab7e1-2b2e-491f-b6de-e0926536a272")
 		)
@@ -3603,6 +3631,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "CCTC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TCC0402X5R475M6R3AT" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C380302" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "acb4b413-6400-442e-8062-1fe835bd37e8")
 		)
@@ -3655,6 +3686,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "5821ee69-9054-4e1a-bc4c-5b78e03cdf7f")
 		)
@@ -3707,6 +3741,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "dabdccb2-8920-4577-b921-af3defa48ef6")
 		)
@@ -3759,6 +3796,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "7bd685d1-866a-4da5-aba2-721f3360133a")
 		)
@@ -3931,6 +3971,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF330JTCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C25105" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "8e4bfcaa-25d7-4fe5-8772-d3075ff5d311")
 		)
@@ -3974,6 +4017,7 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "landerviz:L_Abracon_AOTA-B201610S3R3-101-T" (at 157.48 69.8499 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Manufacturer" "Abracon"
 			(at 157.48 69.8499 0)
 			(hide yes)
@@ -3994,6 +4038,7 @@
 				(justify left)
 			)
 		)
+		(property "LCSC" "C42411119" (at 157.48 69.8499 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "1b03dea2-47ae-4996-a3a1-154a3caa6509")
 		)
@@ -4086,6 +4131,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "CCTC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TCC0402X5R475M6R3AT" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C380302" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "1c647ebb-ca46-432a-8271-dd43334537e2")
 		)
@@ -4289,6 +4337,7 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm" (at 107.95 134.6199 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Manufacturer" "Abracon"
 			(at 107.95 134.6199 0)
 			(hide yes)
@@ -4309,6 +4358,7 @@
 				(justify left)
 			)
 		)
+		(property "LCSC" "C20625731" (at 107.95 134.6199 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "544be611-743c-4ac6-a1e0-bf38cdcb82e0")
 		)
@@ -4367,6 +4417,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF1001TCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C11702" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "e2082fe4-7495-4455-ac0a-7b298d68dbb5")
 		)
@@ -4419,6 +4472,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "FH (Guangdong Fenghua Advanced Tech)" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402CG150J500NT" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1548" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "b484bc56-8b61-432e-8404-49ed7657e600")
 		)
@@ -4511,6 +4567,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "FH (Guangdong Fenghua Advanced Tech)" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402CG150J500NT" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C1548" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "169322dc-ae56-418e-88a3-3a6f36aeb70b")
 		)
@@ -4643,6 +4702,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF1001TCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C11702" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "336a5e14-6b59-4d00-afbb-ee852c5f17cc")
 		)
@@ -4686,6 +4748,10 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "Button_Switch_SMD:SW_Push_1P1T_XKB_TS-1187A" (at 95.25 109.22 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Manufacturer" "XKB Connection" (at 95.25 109.22 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TS-1187A-B-A-B" (at 95.25 109.22 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C318884" (at 95.25 109.22 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "ef447245-a7c5-4c0d-9fe7-6f1a0ac05845")
 		)
@@ -4778,6 +4844,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF1001TCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C11702" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "d72086a2-04a8-422f-8835-0416ae53b215")
 		)
@@ -4821,6 +4890,10 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "Button_Switch_SMD:SW_Push_1P1T_XKB_TS-1187A" (at 95.25 91.44 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Manufacturer" "XKB Connection" (at 95.25 91.44 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TS-1187A-B-A-B" (at 95.25 91.44 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C318884" (at 95.25 91.44 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "9860351b-12c5-4eef-a82e-f21f59d60e7d")
 		)
@@ -4904,6 +4977,7 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D2.0mm" (at 100.33 148.59 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "8a15420c-2536-49ff-9e7e-c2ab46463d67")
 		)
@@ -4944,6 +5018,7 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D2.0mm" (at 100.33 154.94 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "709cc8bf-7f0e-44fe-9746-12756dec9f56")
 		)
@@ -4984,6 +5059,7 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D2.0mm" (at 100.33 161.29 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "5c97a223-256e-4320-9af8-3c8a0fc4eb22")
 		)
@@ -5073,6 +5149,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF270JTCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C25100" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "d7039497-3b2f-42c0-85d7-9fc1e7d496d6")
 		)
@@ -5125,6 +5204,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF270JTCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C25100" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "8da411c8-19f5-42f2-ae11-e8cff37d8e99")
 		)
@@ -5177,6 +5259,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF220JTCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C25092" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "49288373-e67d-472d-a35c-d94d837a1544")
 		)
@@ -5229,6 +5314,9 @@
 				(hide yes)
 			)
 		)
+		(property "Manufacturer" "UNI-ROYAL" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "0402WGF220JTCE" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C25092" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "1a349802-1982-455a-9994-935071d52ee7")
 		)
@@ -6382,6 +6470,7 @@
 				(justify left)
 			)
 		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D2.0mm" (at 187.96 91.44 90) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "8d1fd4d5-7d13-48ce-a1e5-a143e1df02f8")
 		)
@@ -6424,6 +6513,7 @@
 				(justify right)
 			)
 		)
+		(property "Footprint" "TestPoint:TestPoint_Pad_D2.0mm" (at 187.96 93.98 270) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "d864d727-d660-4bf3-9213-ed90a02f37a6")
 		)

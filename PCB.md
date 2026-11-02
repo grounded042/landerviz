@@ -160,12 +160,19 @@ These assignments are frozen:
 | Rotary encoder push switch | GPIO8 |
 
 Encoder A, encoder B, and the push switch use internal pull-up resistors and
-share a digital-ground common. The validated EC11 produces one count per
-detent with no rejected transitions. Turning selects the visualization, a
-short press cycles its color scheme, and holding for more than 800 ms opens the
-LCD menu. Revision A preserves that circuit directly: it does not add external
-pull-ups, resistor-capacitor debounce networks, or other filtering to the
-encoder signals.
+share a digital-ground common. Revision A uses a Bourns
+`PEC12R-4120F-S0012` (`C143801` in the JLCPCB/LCSC catalog): 12 physical
+detents, 12 electrical pulses per revolution, a momentary push switch, and a
+20 mm top-facing shaft. Bourns calls this a horizontal mount because the
+encoder body lies flat on the PCB; the shaft itself points up. This variant has
+no threaded panel bushing, so the enclosure must support the PCB near the
+encoder rather than relying on a shaft nut to carry push force.
+
+Firmware must produce one action per physical detent. Turning selects the
+visualization, a short press cycles its color scheme, and holding for more than
+800 ms opens the LCD menu. Revision A preserves the validated electrical
+circuit directly: it does not add external pull-ups, resistor-capacitor
+debounce networks, or other filtering to the encoder signals.
 
 GPIO2 through GPIO7 drove the initial parallel-LCD prototype. The validated
 revision-A breadboard configuration now uses GPIO2 and GPIO3 as the native
@@ -273,9 +280,9 @@ specified operating-temperature range; do not pair a 1.1 A hold-current part
 with the 1.5 A advertisement. The downstream TPS25821 provides faster and more
 precise Moonlander-port fault limiting. The input device protects the board's
 other 5 V branches and wiring from sustained faults. Schematic capture uses the
-Littelfuse 1206L200SL, a 2 A-hold polymer positive-temperature-coefficient
-(PTC) resettable fuse, as the current candidate. Its assembly availability and
-temperature derating remain release checks; do not silently substitute a lower
+stocked LUTE `1206L200/16NR` (`C22374899`), a 2 A-hold polymer
+positive-temperature-coefficient (PTC) resettable fuse. Its temperature
+derating remains a release check; do not silently substitute a lower
 hold-current part.
 
 Component voltage/current ratings should include sensible margin, but the
@@ -376,9 +383,8 @@ operational-amplifier filter and preserving revision A's minimal hardware.
 A BAT54S dual Schottky diode on each ADC node clamps positive and negative
 fault excursions toward the 3.3 V and ground rails. The 10 kilohm series
 resistor limits clamp and unpowered-input current. Schematic capture uses the
-Diodes Incorporated `BAT54S-7-F` in SOT-23 as the current candidate; assembly
-availability and leakage specifications remain bill-of-materials release
-checks.
+Diodes Incorporated `BAT54S-7-F` (`C83574`) in SOT-23; assembly availability
+and leakage specifications remain bill-of-materials release checks.
 
 Firmware currently adds 8x, or approximately +18 decibels (dB), visualization
 gain because the proven passive mixer attenuates its output. Clip indication is
@@ -388,9 +394,13 @@ high-frequency texture, silence calibration, and clip behavior with the
 accepted prototype before firmware constants are retuned.
 
 Keep ADC nodes and input traces short and away from USB data, display clocks,
-and Moonlander/display power. Add labeled test points for left ADC, right ADC,
-both bias nodes, 3.3 V, 5 V, and ground. The exact TRS jack footprint and 10
-microfarad capacitor package remain mechanical and assembly-review blockers.
+and Moonlander/display power. Add labeled 2 mm surface test pads for left ADC,
+right ADC, both bias nodes, 3.3 V, 5 V, and ground. J3 is the CUI
+`SJ1-3523N` (`C20182914`) with KiCad's matching horizontal footprint. C26 and
+C27 are Honor Elec `RVT1C100M0405` (`C3357`) polarized 10 microfarad, 16 V
+surface-mount electrolytics; their positive terminals face the biased ADC
+nodes. Placement and polarity review remain release checks, but these are no
+longer unassigned mechanical blockers.
 
 ## Grounding — frozen intent, corrected PCB implementation
 
@@ -435,8 +445,9 @@ Graphical OLED modules are also deferred to revision B or later.
 
 Revision A runs the display's I2C bus at 100 kHz for PCF8574T compatibility.
 
-The main board uses a keyed, four-position JST-PH 2.0 mm-pitch connector with
-this frozen pinout:
+The main board uses a keyed, right-angle JST
+`S4B-PH-K-S(LF)(SN)` (`C157926`) four-position, 2.0 mm-pitch connector with
+this frozen pinout. JLCPCB wave-solders the through-hole connector:
 
 | Pin | Signal | External level |
 |---:|---|---:|
@@ -445,10 +456,24 @@ this frozen pinout:
 | 3 | SDA | 5 V I2C |
 | 4 | SCL | 5 V I2C |
 
-The cable is straight-through to the backpack's labeled `GND`, `VCC`, `SDA`,
-and `SCL` pins. Confirm the footprint's pin-one orientation against the exact
-JST drawing and mark both connector ends clearly; wire color is not the source
-of truth.
+The display cable is a hybrid harness, not a JST cable at both ends. Its board
+end is a JST `PHR-4` female housing; its display end is one 1x4, 2.54 mm-pitch
+female socket that slides over the backpack's four exposed male pins. LCSC's
+custom-cable service can supply this harness with a minimum order of one and
+ship it with the JLCPCB order. The conductors are straight-through to the
+backpack's labeled `GND`, `VCC`, `SDA`, and `SCL` pins. Freeze the cable length
+after display and enclosure placement; 100--200 mm is the current working
+range, not a released dimension.
+
+Loose 2.54 mm female Dupont jumper wires are acceptable for bench bring-up on
+the LCD-backpack end, but they cannot plug directly onto the board's 2.0 mm
+JST-PH connector. They also lack the keying and latch needed for the enclosed
+device, so they do not replace the final harness.
+
+The LCD-side socket is not keyed. Mark its ground end physically, use a black
+ground conductor, and label the backpack connection. Confirm the board
+footprint's pin-one orientation against the exact JST drawing; wire color is
+an aid, not the source of truth.
 
 RP2354A pins are not 5 V tolerant. The main board therefore includes
 bidirectional, open-drain-compatible level translation between the internal
@@ -469,8 +494,8 @@ parallel pull-ups reduce the resistance and increase the current a device must
 sink when it drives the bus low.
 
 The schematic uses the standard BSS138 gate/source/drain pin order with an
-SOT-23 (small-outline transistor) footprint. The exact manufacturer orderable
-part remains an assembly availability check. Assembled-board bring-up must
+SOT-23 (small-outline transistor) footprint. Q1 and Q2 are frozen as onsemi
+`BSS138LT1G` (`C82045`); stock remains a release-time check. Assembled-board bring-up must
 verify that both lines idle at the correct side-specific voltage and that
 communication remains reliable at 100 kHz before the translator is accepted.
 
@@ -519,6 +544,20 @@ to four layers without reviewing the tradeoff. A two-layer board is acceptable
 only if it can retain a continuous ground reference, clean USB routing, and
 the required analog/power separation at the target size.
 
+## Assembly and loose-part sourcing
+
+Prefer JLCPCB-stocked manufacturer parts for both surface-mount and
+through-hole components. JLCPCB assembles supported through-hole parts by wave
+soldering; revision A therefore targets an assembled audio jack, rotary
+encoder, and display header rather than asking the user to solder them after
+delivery.
+
+JLCPCB does not ship unused assembly inventory as loose parts. Any cable,
+knob, or fallback component that is not assembled onto the board is purchased
+from LCSC and combined with the JLCPCB shipment. Assembly stock and pricing
+remain release-time checks; a catalog identifier documents the intended part
+but does not guarantee future availability.
+
 ## Revision-A review gate
 
 Electrical-rules check (ERC) and design-rules check (DRC) are the
@@ -526,13 +565,14 @@ computer-aided design tool's automated schematic and layout checks. They are
 necessary but cannot prove the board will work. Before fabrication:
 
 1. Commit and push the known-good breadboard milestone and record its commit.
-2. Verify J4's physical pin-one orientation against its final footprint and
-   verify GPIO6/GPIO7 test-pad placement remains probe-accessible.
+2. Verify J4's physical pin-one orientation against its final footprint,
+   validate the JST-PH-to-2.54-mm-female display cable, and verify GPIO6/GPIO7
+   test-pad placement remains probe-accessible.
 3. Verify the frozen TPS25821 1.5 A advertisement and VBUS implementation
    against the powered-hub-only source constraint and measured 0.724 A peak.
-4. Verify assembly availability and temperature derating for the captured
-   1206L200SL input fuse and TPD2EUSB30DRTR USB protection; select the remaining
-   physical packages and verify the frozen TLV75533PDBVR, TPS25821, and crystal
+4. Verify assembly availability and temperature derating for the captured LUTE
+   `1206L200/16NR` (`C22374899`) input fuse and TPD2EUSB30DRTR USB protection;
+   verify the frozen TLV75533PDBVR, TPS25821, crystal, capacitors, and connector
    selections remain available.
 5. Verify the captured audio protection and first-order anti-alias filter,
    then validate their response on the assembled revision before retuning
