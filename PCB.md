@@ -525,8 +525,56 @@ specified revision B or C.
 
 ## Mechanical target
 
-The main board should be connector-limited and approximately 35–40 mm class.
-That is a placement target, not yet a guaranteed outline. It must accommodate:
+The working placement is `hardware/landerviz.kicad_pcb`:
+48 by 42 mm, four copper layers, upstream USB-C and audio input on the left,
+Moonlander USB-C on the opposite (right) edge, LCD cable exiting the top,
+and the encoder toward the
+lower right. The audio connector's footprint supplies a required notch in the
+left board edge. Three provisional 2.2 mm holes accept M2 mounting screws;
+their locations and support near the encoder still require mechanical review.
+All 79 schematic footprints have trial positions inside the outline. Purchased
+components remain on top; twelve bare probe pads are on the underside, with
+no extra assembly operation. The user approved exploring a larger outline
+and rectangular shapes after the 40 mm study failed to preserve local circuits.
+The 48 by 42 mm candidate gives better circuit grouping than the compared
+45 mm square and 50 by 40 mm rectangle. The local regulator, crystal, processor
+supplies, and ground returns are connected. Processor bypass branches and both USB data paths are routed;
+the main 5 V path, switched keyboard power, both USB-C configuration channels,
+3.3 V/1.1 V distribution, fused display power, and stereo audio are routed.
+Controls, display, and service connections are also routed: the latest KiCad
+check has zero unconnected items or schematic mismatches. Ground copper spans
+all four layers; `In1.Cu` is a dedicated ground plane with one connected region
+and the required local regulator cutout. The USB-hole and library findings
+have been resolved without waiving clearance rules. The processor's farthest
+core-supply bypass, C10, is corrected to 4.7 microfarads and moved closer to
+pin 23, following datasheet section 6.1.3. The outline and component count
+are unchanged. See `hardware/REVIEW_NOTES.md` for the current candidate and
+remaining electrical/assembly questions.
+Electrical,
+signal-integrity, assembly, and fabrication reviews are still pending. These are
+working positions, not released fabrication geometry.
+
+Connector direction is a mechanical requirement: the upstream USB cable and
+audio cable enter from the same side; the keyboard cable exits opposite them.
+J4's side-entry opening faces outward at the top edge. Its prior inward-facing
+rotation was a placement error, not an intended internal-cable arrangement.
+Viewed from above, J4 pin 1 (GND) is the rightmost pin in its four-hole row;
+pin 4 (SCL) is leftmost. Rotation does not change the electrical pinout.
+
+The underside retains the LanderViz wordmark and revision identification.
+The lander and flowing-ribbon drawings have been removed at the user's request.
+Decorative artwork is deferred. Probe access, readable service labels, and
+final routing take priority over ink. See `hardware/PLACEMENT_REVIEW.md`:
+physical packing does not constitute electrical placement approval.
+
+The enclosure is deferred until after the PCB is ordered. The user has access
+to local-library 3D printers and CNC machines, and a friend has offered 3D
+printing. No enclosure vendor or purchased case is selected. Keep mounting,
+connector clearance, and component-height information with the PCB design so
+the eventual enclosure can be built around the delivered board.
+
+The original 35–40 mm size target has been superseded by the approved shape
+study. The current working outline is 48 by 42 mm. It must accommodate:
 
 - two USB-C receptacles;
 - one 3.5 mm TRS jack;
@@ -538,13 +586,26 @@ That is a placement target, not yet a guaranteed outline. It must accommodate:
 - the display connector; and
 - debug/test access.
 
-Freeze connector direction, enclosure geometry, mounting holes, control
-access, and cable clearances before routing. Do not enlarge the board or move
-to four layers without reviewing the tradeoff. A two-layer board is acceptable
-only if it can retain a continuous ground reference, clean USB routing, and
-the required analog/power separation at the target size.
+Freeze connector direction, mounting holes, control access, and cable
+clearances before routing; enclosure modeling can follow the PCB order.
+The four-layer tradeoff has been reviewed and approved by the user, and the
+board conversion is implemented. The working fabrication stack is JLCPCB
+`JLC04161H-3313`, nominal 1.6 mm: 35 / 15.2 / 15.2 / 35 micrometer copper,
+with 0.0994 / 1.265 / 0.0994 mm insulation spacing. This refines the initial
+7628 choice to improve the USB data traces' impedance. `In1.Cu` is ground;
+`In2.Cu` provides additional signal routing and ground fill. See
+`hardware/README.md` for dimensions, keepouts, validation, and limitations.
+Keep the 48 by 42 mm outline, component set, and single-sided component
+assembly. Specify the selected stack in the fabrication order, preserve the
+ground reference and regulator keepouts, and review USB pair geometry against
+this stack before release. Further size or scope changes still require review.
 
 ## Assembly and loose-part sourcing
+
+The working appearance is blue solder mask (the protective coating over
+copper) with white silkscreen lettering on both sides. Black is an acceptable
+alternative, subject to that option's manufacturing clearance checks. Select
+the color explicitly in the PCB order; KiCad's preview does not set the order.
 
 Prefer JLCPCB-stocked manufacturer parts for both surface-mount and
 through-hole components. JLCPCB assembles supported through-hole parts by wave
@@ -577,8 +638,9 @@ necessary but cannot prove the board will work. Before fabrication:
 5. Verify the captured audio protection and first-order anti-alias filter,
    then validate their response on the assembled revision before retuning
    firmware.
-6. Freeze the enclosure and connector geometry after a component placement
-   study confirms the 35–40 mm target is credible.
+6. Freeze the board outline, connector geometry, mounting holes, and control
+   clearances after the 48 by 42 mm working layout is fully routed and checked.
+   Enclosure modeling follows the PCB order.
 7. Check every RP2354A support net and boot setting against Raspberry Pi's
    hardware-design checklist, including crystal, integrated-flash boot, core
    supply, ADC supply, USB, BOOTSEL, and exposed-pad grounding.

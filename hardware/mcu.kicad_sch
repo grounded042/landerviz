@@ -5,7 +5,7 @@
 	(uuid "b379219a-a9a3-40eb-a57a-e51b2a91d82c")
 	(paper "A4")
 	(lib_symbols
-		(symbol "MCU_RaspberryPi:RP2354A"
+		(symbol "LanderViz:RP2354A"
 			(property "Reference" "U"
 				(at 17.526 47.244 0)
 				(show_name no)
@@ -28,7 +28,7 @@
 					(justify left)
 				)
 			)
-			(property "Footprint" "Package_DFN_QFN:QFN-60-1EP_7x7mm_P0.4mm_EP3.4x3.4mm"
+			(property "Footprint" "landerviz:QFN-60-1EP_7x7mm_P0.4mm_EP3.4x3.4mm_LanderViz"
 				(at 0 0 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -2770,7 +2770,7 @@
 		)
 	)
 	(symbol
-		(lib_id "MCU_RaspberryPi:RP2354A")
+		(lib_id "LanderViz:RP2354A")
 		(at 149.86 114.3 0)
 		(unit 1)
 		(exclude_from_sim no)
@@ -2797,7 +2797,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Package_DFN_QFN:QFN-60-1EP_7x7mm_P0.4mm_EP3.4x3.4mm"
+		(property "Footprint" "landerviz:QFN-60-1EP_7x7mm_P0.4mm_EP3.4x3.4mm_LanderViz"
 			(at 149.86 114.3 0.0000)
 			(effects
 				(font
@@ -3723,7 +3723,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "100nF"
+		(property "Value" "4.7uF"
 			(at 37.084 48.768 0.0000)
 			(effects
 				(font
@@ -3741,9 +3741,9 @@
 				(hide yes)
 			)
 		)
-		(property "Manufacturer" "Samsung Electro-Mechanics" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "MPN" "CL05B104KO5NNNC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
-		(property "LCSC" "C1525" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Manufacturer" "CCTC" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "MPN" "TCC0402X5R475M6R3AT" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "LCSC" "C380302" (at 0 0 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(pin "1"
 			(uuid "dabdccb2-8920-4577-b921-af3defa48ef6")
 		)

@@ -1406,7 +1406,7 @@
 		(uuid "caf223f5-3959-49df-a018-7cf255f28fac")
 		(property "Reference" "J3" (at 26.67 63.5 0) (effects (font (size 1.27 1.27))))
 		(property "Value" "SJ1-3523N TRS INPUT" (at 26.67 66.04 0) (effects (font (size 1.27 1.27)) (hide yes)))
-		(property "Footprint" "Connector_Audio:Jack_3.5mm_CUI_SJ1-3523N_Horizontal" (at 25.4 67.31 0) (hide yes) (effects (font (size 1.27 1.27))))
+		(property "Footprint" "landerviz:Jack_3.5mm_CUI_SJ1-3523N_Horizontal_LanderViz" (at 25.4 67.31 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "Manufacturer" "CUI Devices" (at 25.4 67.31 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "MPN" "SJ1-3523N" (at 25.4 67.31 0) (hide yes) (effects (font (size 1.27 1.27))))
 		(property "LCSC" "C20182914" (at 25.4 67.31 0) (hide yes) (effects (font (size 1.27 1.27))))

@@ -36,8 +36,9 @@ reference for circuitry shared with RP2354A:
   `c0b858d78f56fa271a827064198e8ee81e4ec246234ce6659be8a1fcd877d06b`
 - License: MIT, Copyright Raspberry Pi Ltd 2026
 
-The archive is not vendored because its complete board layout is not a
-LanderViz design input. In particular, do not copy its external QSPI flash,
+The archive is not vendored. Its local processor regulator placement is used
+as a reference-derived layout input, with attribution in `REFERENCE_LICENSE.txt`.
+The complete reference board is not copied. In particular, do not copy its external QSPI flash,
 Micro-USB connector, board outline, or routing. LanderViz uses RP2354A with 2
 MB of in-package flash. See `PCB.md` for the exact reuse boundary.
 
@@ -57,6 +58,204 @@ Capture proceeds in reviewable slices. Component values that remain open in
 not copied from an unrelated example.
 
 ## Current capture status — 2026-11-02
+
+### Physical layout draft — 2026-11-04
+
+Open `landerviz.kicad_pcb` in KiCad's PCB Editor. All 79 schematic footprints
+now have working positions inside the 48 by 42 mm outline and retain their
+original schematic paths, component fields, and pad connections. Three
+board-only M2 mounting holes are provisional. All purchased components are
+on top; the twelve bare test pads are on the underside, without adding an
+assembly operation. The user approved larger and rectangular outline studies.
+The regulator, crystal, processor supplies, USB, stereo audio, display,
+encoder, and service connections are routed on the approved four-layer board.
+
+Upstream USB-C and the audio jack face left. Moonlander USB-C faces right,
+opposite the inputs. The display connector's opening faces outward at the top
+edge, and the encoder is at the lower right. The audio jack
+requires an edge notch, which is included in the draft outline. The layout
+now uses four copper layers. Physical packing fits; electrical placement and routing are
+still under review. The power blocks are now local, and the analog and display
+groups are closer to their target positions than in the 40 mm study. Processor
+bypass capacitors have priority around their respective
+supply pins. Component reference text is on the fabrication layers (the assembly
+drawing), keeping the tiny top side free of unreadable overlapping references.
+
+KiCad's initial placement check reports zero schematic-parity findings (the
+board components and connections match the schematic). The outline closes,
+and the current placement has no courtyard overlaps, shorts, or copper-edge
+clearance findings. A courtyard is the reserved assembly space around a part.
+The board has zero unconnected findings. The USB locating-hole clearances
+and library mismatches are resolved; see `LIBRARY_CHANGES.md` for the exact
+local variants. The processor's farthest core-supply bypass, C10, is now
+4.7 microfarads, as required by the datasheet, and closer to pin 23.
+Ground copper fills all four layers and is joined by
+stitching vias; there are no disconnected ground findings. A stitching via
+is a plated hole that joins ground copper on the two sides.
+There are no shorts, trace-clearance failures, courtyard overlaps, or
+schematic-parity findings. No findings were waived. USB geometry/impedance, power, analog, and
+assembly reviews also remain necessary.
+This draft is not manufacturing-ready.
+
+### Four-layer stack and checks — 2026-11-04
+
+The selected working stack is JLCPCB's nominal 1.6 mm `JLC04161H-3313`, using
+the manufacturer's [published copper and insulation dimensions](https://jlcpcb.com/impedance):
+
+| Position | KiCad layer | Role |
+|---|---|---|
+| Top | `F.Cu` | components, local power/analog connections, USB escapes, ground fill |
+| Inner 1 | `In1.Cu` | dedicated ground; no routed tracks |
+| Inner 2 | `In2.Cu` | additional signal routing and ground fill |
+| Bottom | `B.Cu` | existing USB/power/signal routes, bare probes, ground fill |
+
+Outer copper is 0.035 mm; inner copper is 0.0152 mm. The insulating spacings
+are 0.0994 / 1.265 / 0.0994 mm. The insulating material is FR-4, a glass/epoxy
+laminate. KiCad retains nominal 1.6 mm board thickness and blue/white finish;
+the 0.01 mm mask values remain rendering approximations. The selected stack
+must be specified in the fabrication order, not left to an arbitrary stack.
+
+`In1.Cu` fills as one connected ground region. The regulator has named
+inner-layer keepouts beneath the inductor and switching node, following
+RP2350 datasheet section 6.3.8.1 / Figure 27. The top-side fill keepout follows
+the existing switching polygon's edge so that the required LX connection
+remains intact. The reference regulator's component placement is retained.
+C10 is corrected to the datasheet's 4.7 microfarad bypass for DVDD pin 23.
+
+New escapes use ordinary 0.4 mm diameter / 0.2 mm drilled through vias;
+these span all four layers. The project's minimum drill and via diameters now
+match those values, within JLCPCB's [published capabilities](https://jlcpcb.com/capabilities/pcb-capabilities/).
+The minimum annular ring remains 0.1 mm and general copper clearance 0.2 mm.
+There are no blind/buried vias or newly assumed filling/capping processes.
+This also resolves the previous three 0.2 mm controller-hole drill findings.
+
+C12 moved 0.1 mm upward, with its ground via also moved upward. The right ADC
+probe now connects through a small via inside the bare bottom test pad, with
+shorter inner-layer branches to the series resistor and clamp. The probe has
+no solder-paste aperture. Obsolete display-data detours and trial stubs were
+removed. The LCD SDA via at (27.8, 8.8) mm moved to (27.8, 8.9) mm to improve
+the ground reference beneath the downstream USB data pair.
+
+Validation with KiCad 10.0.6: zero unconnected items, shorts, trace-clearance
+errors, courtyard overlaps, dangling tracks/vias, or schematic-parity findings.
+A separate geometric check sampled USB track centers and edges every 0.1 mm,
+excluding 0.8 mm around USB via launches: all 3,798 samples have ground on
+the adjacent inner layer. This verifies sampled reference coverage; it does
+not establish 90-ohm differential impedance or USB electrical compliance.
+
+### Board artwork
+
+The working finish is blue solder mask with white silkscreen. Solder mask is
+the protective coating over the copper; silkscreen is the printed lettering.
+Both sides use those colors in the KiCad stackup. Enable "Use board stackup
+colors" in the 3D Viewer if local appearance settings override them. The
+fabrication order must separately select the desired color; the preview does
+not place or configure an order. Black remains an acceptable alternative, but
+mask clearances must be reviewed for that manufacturing option before release.
+The stackup retains nominal 1.6 mm thickness with 35 micrometer outer and
+15.2 micrometer inner copper; fabrication settings remain unreleased.
+
+The underside has a bold `LANDERVIZ` wordmark centered at (27, 21) mm from
+the upper-left board corner, with `REV A / AUDIO IN. LIGHT OUT.` at (27, 23.5)
+mm. The ink clears the probe labels and through-hole hardware. The lander and flowing-ribbon
+drawings were removed at the user's request. Decorative drawings are deferred
+while the electrical layout is developed. Final routing and test access take
+priority over ink. Press Alt+3 in the PCB Editor for KiCad's 3D Viewer and turn
+the board over to inspect it; top-side service labels will be finalized after
+placement stabilizes.
+
+### Electrical placement review — continuation
+
+The initial 40 mm physical packing was rejected because it did not adequately
+preserve local power and analog circuits. See `PLACEMENT_REVIEW.md` for that
+history, the subsequent outline comparison, and current routing status. A clean
+overlap check must not be presented as complete electrical placement approval.
+The current 48 by 42 mm draft follows the user's permission to explore larger
+and rectangular outlines.
+
+The processor regulator group now follows the local geometry of the pinned
+Raspberry Pi R4-S1 reference, adjusted for this project's pad/courtyard sizes.
+Its marked inductor terminal remains connected to the switch node. The crystal
+signal paths are routed on top without signal vias. The local regulator
+input/feedback/output, switching-node copper, filtered supply, and capacitor
+ground returns are now connected. Most processor supply pins now have short
+branches to their bypass capacitors, whose ground ends join the back plane.
+The U1 pin 20 / C14 supply escape is now connected by a back-side branch;
+the clock remains on top and the ground plane stays connected. The wider
+3.3 V and 1.1 V distribution is connected. The main input fuse, protected 5 V
+trunk, keyboard power switch and bulk reservoir, switched keyboard output,
+and fused display feed are now connected. Short 0.25–0.4 mm pad escapes join
+0.8–1.0 mm trunks; paired 0.8/0.4 mm vias carry the keyboard output between
+layers. These widths need final current/temperature review before release.
+The project's minimum trace width is now 0.15 mm for fine-pitch escapes; default
+net-class routing width stays at 0.2 mm and local regulator power traces at
+0.4 mm. Fabrication-rule signoff remains pending.
+
+`landerviz.kicad_dru` permits 0.10 mm clearance only between the switching
+node and C6/C7 pads, allowing the reference-style escape through their pad
+gap. Other clearance rules remain unchanged. The local rule is based on
+[JLCPCB's 1 oz pad-to-track capability](https://jlcpcb.com/capabilities/pcb-);
+changing copper weight requires rechecking it. No findings are suppressed.
+
+Four 0.3 mm drill ground vias join the processor's exposed pad (the large
+ground contact underneath the chip) to the back plane. Their interaction with
+solder paste and possible solder wicking through the holes must be checked
+in assembly review; no premium filled/capped-via process has been selected.
+
+The upstream USB-C A6/B6 and A7/B7 contacts are connected to their respective
+data nets and to U3's electrostatic-discharge protection pads. The alternating
+contacts join on opposite sides of the connector tail row, avoiding crossed
+data nets. U3 has a local ground via. Both upstream and downstream data paths
+now continue through their series resistors to the processor. Each signal uses
+two layer transitions in the upstream link and four in the downstream link.
+The processor-end vias sit outside the exposed pad, under the package body,
+with tented mask rather than premium filled/capped vias. Main connector power
+is routed. Configuration-channel (CC) wiring is connected on both ports.
+The power controller's reference
+resistor is connected. Whole-link geometry and impedance review are pending.
+This is connectivity/clearance progress, not functional USB or signal-integrity
+signoff; the board is not ready to power or order.
+
+Both audio coupling capacitors now face their negative input terminals toward
+the jack. C29 moved beside the right analog-to-digital converter (ADC) input.
+Both filter-capacitor-to-processor paths stay on the front; the right-channel
+resistor/clamp branches use the back as well. Bias, protection, filter ground
+returns, and all four audio test pads are connected. Longer analog branches,
+probe stubs, and their return paths remain electrical-review items.
+
+The display clock, encoder A, debug clock/data, and reset escapes are now
+connected. Display pull-up links, display data, encoder B/press, spare GPIO
+probes, and boot-select are connected. R22 is now
+at (38.5, 1.8) mm. Ground stitching resolved pockets created by back-side control traces;
+the ground fills discard isolated copper. USB shield lugs, the display ground
+pin, and U2's three thermal holes use selected solid ground connections, with
+solderability still to review. No design-rule findings were waived.
+
+Clipped package-outline ink was removed from the board; the assembly drawings
+are retained, and a smaller processor pin-one dot replaces the clipped marker.
+The project-owned encoder and inductor footprints retain these changes in
+their source files. The edited upstream-library footprints now have matching
+project-local variants. A spare-GPIO trace was rerouted around
+the audio jack's non-plated mounting hole.
+
+The user approved and the board now implements four copper layers with the
+same outline and components. Earlier two-layer experiments that introduced
+excessive analog detours or ground fragmentation were discarded. Those
+experiments do not prove that a two-layer design is impossible.
+
+The original same-edge USB arrangement and inward-facing LCD opening were
+corrected after visual review. The local regulator block and its first traces
+were moved to accommodate the left-edge USB input, USB protection was placed
+behind that connector, and the probe pads were rechecked against the relocated
+through-hole hardware. Pin assignments and the schematic are unchanged.
+
+Underside probe labels: `CLK`/`DIO` are Serial Wire Debug clock/data;
+`BL`/`BR` are left/right bias; `AL`/`AR` are left/right analog-to-digital
+converter inputs; `GP6`/`GP7` are spare GPIO6/GPIO7 pads. The schematic test-point
+references remain visible on the bottom fabrication layer.
+
+The enclosure will be designed after the PCB is ordered, using the user's
+library makerspace or a friend's 3D printer. No enclosure supplier is selected.
 
 ### MCU core
 
@@ -187,10 +386,13 @@ assembly orientation before release. Q1/Q2 are frozen as onsemi `BSS138LT1G`
 connector; GPIO6 and GPIO7 terminate at labeled test pads for diagnostics or
 rework only.
 
-### Expected project-level findings
+### Independent-review handoff
 
-KiCad currently reports only the known RP2354A library-copy warning: the
-installed symbol is derived from RP2350A while the MCU sheet embeds the
-reviewed RP2354A pin definition. It must be explicitly resolved before final
-schematic approval; no current finding comes from the USB/power, audio,
-encoder, display, or GPIO6/GPIO7 test-pad circuits.
+The reviewed RP2354A symbol is now in the project library; the former library
+warning is resolved. Read [`REVIEW_NOTES.md`](REVIEW_NOTES.md) for the current
+candidate, checks, and unresolved electrical/assembly questions. Share
+[`ASTRA_REVIEW.md`](ASTRA_REVIEW.md) as the concise independent-review prompt.
+`prepare_review.py` builds a source snapshot and review artifacts under the
+ignored `fabrication/` directory. It uses installed KiCad and no downloaded
+Python dependencies, accesses no network, and checks that sources stay unchanged.
+Neither a clean automated report nor the generated files authorize an order.

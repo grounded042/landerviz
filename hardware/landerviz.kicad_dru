@@ -1,0 +1,8 @@
+(version 1)
+
+# Local RP235x reference-layout switching escape between C6/C7 pads.
+# 0.10 mm pad-to-track spacing is within JLCPCB's published 1 oz capability.
+# Keep the default 0.20 mm clearance everywhere else; no violations are waived.
+(rule "RP235x switching escape at local capacitors"
+  (condition "(A.NetName == 'Net-(U1-VREG_LX)' && (B.memberOfFootprint('C6') || B.memberOfFootprint('C7'))) || (B.NetName == 'Net-(U1-VREG_LX)' && (A.memberOfFootprint('C6') || A.memberOfFootprint('C7')))")
+  (constraint clearance (min 0.10mm)))
