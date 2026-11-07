@@ -2,7 +2,9 @@
 
 Status: **48 by 42 mm four-layer review candidate; all connections routed**.
 Current details, corrected C10, stack, and remaining questions are recorded in
-[`REVIEW_NOTES.md`](REVIEW_NOTES.md). The routing history below includes earlier
+[`REVIEW_NOTES.md`](REVIEW_NOTES.md). Subsequent independent-review corrections
+are recorded in [`REVIEW_RESOLUTION.md`](REVIEW_RESOLUTION.md).
+The routing history below includes earlier
 checkpoints; its old finding counts and 7628 stack are superseded.
 This is an unfinished
 layout, not a fabrication release. The earlier 40 mm findings below are retained

@@ -1,15 +1,18 @@
 # Revision A: review candidate, 2026-11-04
 
-Status: **ready for independent review; NOT released for fabrication**.
-`ASTRA_REVIEW.md` is the shareable request. `PCB.md` contains requirements.
+Status: **review corrections and approved input charging implemented; NOT released for fabrication**.
+[`REVIEW_RESOLUTION.md`](REVIEW_RESOLUTION.md) records dispositions of the
+Astra and DeepSeek findings. `ASTRA_REVIEW.md` is the original review request;
+the original `fabrication/astra-review/` snapshot is retained unchanged.
+`PCB.md` contains requirements.
 This document supersedes older routing-progress counts and stack choices in
 the placement history. Do not infer that review readiness means order readiness.
 
 ## Candidate and changes
 
-- 48 × 42 mm outline; four layers; 82 footprints: 79 schematic items and
-  three provisional M2 mounting holes. 67 purchased positions, of which
-  R22/R23 are do-not-populate (DNP): 65 intended populated components.
+- 48 × 42 mm outline; four layers; 87 footprints: 84 schematic items and
+  three provisional M2 mounting holes. 72 purchased positions, of which
+  R22/R23 are do-not-populate (DNP): 70 intended populated components.
 - Purchased parts remain on top. The twelve underside test pads are bare
   copper, not purchased components. Connector directions and outline unchanged.
 - Resolved eight USB locating-hole clearance errors with one 0.30 mm corner
@@ -20,8 +23,9 @@ the placement history. Do not infer that review readiness means order readiness.
 - Captured the processor/audio/USB footprint variants and reviewed processor
   symbol in project libraries. No processor pin definition changed.
 - Corrected **C10 from 100 nF to 4.7 µF**, as required for the farthest DVDD
-  supply pin (U1 pin 23) by RP2350 datasheet §6.1.3. Reused C6/C7/C9's
-  capacitor part `TCC0402X5R475M6R3AT`, same 0402 footprint. Moved C10 from
+  supply pin (U1 pin 23) by RP2350 datasheet §6.1.3. C6/C7/C9/C10 now use
+  reference-design Murata `GRM155R60J475ME47D` / `C82453`, retaining their
+  0402 footprints. Moved C10 from
   (20,23.5) to (20,22.1) mm, retaining rotation −90°. Its supply connection
   from pin 23 is now about 2 mm on top; ground joins C15's nearby return.
 - The attempted C14 relocation was rejected because it crowded the clock
@@ -35,6 +39,25 @@ the placement history. Do not infer that review readiness means order readiness.
   coupled pair. Added three ground vias at (8.5,16), (16.6,9.6), (34.8,7.2).
 - Added service labels and the powered-hub-only marking. Preserved the
   underside wordmark. No firmware or visualizer changes in this pass.
+- Corrected L1's fabrication dot to output pad 1; no electrical connection
+  changed. C9 now returns through its own via at (22.7,12.3), separated from
+  the switching return on top by a fill-only keepout. Switching-return vias
+  are (22.2,11.7) and (22.2,12.3), spaced 0.6 mm apart. The inner ground plane
+  remains continuous outside the existing LX void.
+- Moved C25 to (37.1,14.2), rotated 180°, with a short 0.5 mm top branch to
+  the connector-side power feed and a ground via at (35.5,14.2). Its VBUS pad
+  is 3.8305 mm straight-line from the nearest J2 VBUS pad. This is a placement
+  metric, not a transient or connection-inductance measurement.
+- Implemented the user-approved TPS22953 input ramp plus four passives.
+  F1 now feeds only VBUS_FUSED and the small input circuit; U6 feeds the
+  existing +5V reservoir and every former load. H1 moved +1 mm in x, C21
+  +0.3 mm in y initially, C22 +1 mm in x. Astra's follow-up reviewed this
+  stage and identified C21's indirect bypass. The follow-up correction rotates
+  U6 at (15.05,2), places C21 at (11.8,2.8), C30 at (17.6,1.9), C31 at
+  (12.5,1), and shifts/rotates F1 to (7.8,1.8). U6 OUT to C21 now has
+  1.5993 mm of drawn top trace and no vias; C21 retains a direct 2.2522 mm
+  branch to U5 IN. Input bypass and timing connections are shorter too.
+  See `INPUT_POWER_PROPOSAL.md` and `REVIEW_RESOLUTION.md`.
 
 All coordinates here are millimetres relative to the upper-left outline;
 add (100,100) for native KiCad coordinates. The audit JSON uses relative
@@ -89,12 +112,19 @@ This check does not inspect fields, launches, pad stubs, or USB waveforms.
 
 The completed breadboard measurements in `PCB.md` remain the baseline; no
 additional breadboard power campaign is being requested. The new PCB is not
-bench validated. C20 is **before** U2's attachment-controlled switch; C25 is
-4.7 µF after it. The 470 µF reservoir therefore remains an upstream inrush
-question even though it avoids switching that capacitance onto J2.
+bench validated. C20 is **after** the new U6 ramp switch and **before** U2's
+attachment-controlled switch; C25 is 4.7 µF after U2. The uncontrolled input
+reservoir connection has been replaced. The estimated 18 ms ramp / 142 mA
+capacitive charging component is not a measured startup waveform or hard
+current limit. Reverse blocking is disabled-state only. The original USB
+source/current limitations still apply.
 
 A native-connectivity path calculation using 35 µm outer copper and 20 µm
-assumed via plating estimates these selected-path resistances at 20°C:
+assumed via plating gave the following **historical, pre-U6** selected-path
+resistances at 20°C. These are not current-route totals: the new input/output
+escapes and the moved regulator-capacitor branches changed the power routing.
+U6 alone screens to an additional 17 mV drop at 0.724 A using its 24 mΩ
+maximum at 5 V bias. Final rail voltage still requires assembled-board checks.
 
 | Portion | Track length counted | Estimated copper resistance |
 |---|---:|---:|
@@ -124,18 +154,18 @@ must be checked during bring-up. Moonlander and LCD use 5 V directly.
 
 ## Material questions still needing review
 
-1. **Processor regulator:** compare actual L1/C6/C7/R3/C9 copper and returns
-   with official R4-S1 / datasheet §6.3.8, including the two-adjacent-via return
-   recommendation. Inner keepouts and the top fill cut follow Figure 27.
-   Confirm the actual selected capacitors' effective capacitance under DC
-   bias, not just nominal µF. The substituted CCTC parts lack a verified
-   operating-bias curve in this package. L1 pad 2 is the marked LX terminal.
+1. **Processor regulator:** L1 marking and local returns were corrected after
+   review, with nine new regression checks. C6/C7/C9/C10 now use the exact
+   Murata part used for the R4-S1 regulator, resolving the undocumented CCTC
+   substitution. This reference-design precedent does not establish a full
+   voltage/temperature qualification for this board. Assembly must preserve
+   the marked output end and the specified part; no unreviewed substitutions.
 2. **C14:** judge the remaining IOVDD pin-20 bypass branch. Its capacitor is
    farther away than desirable; do not confuse it with the corrected DVDD C10.
 3. **USB:** assess the new stack, partly uncoupled routing, twelve signal vias,
    ESD stubs, and actual ground return at transitions. No simulation or eye
    diagram has been performed. The current class does not prove actual gap.
-4. **Power:** upstream reservoir inrush, source constraint/500 mA declaration,
+4. **Power:** verify the new input ramp on the assembled board, source constraint/500 mA declaration,
    voltage drop, fuse derating, local narrow pad escapes, regulator heat,
    discharge/fault behavior. Do not convert the 1.5 A CC advertisement into an
    unsupported system-wide compliance claim.
@@ -169,13 +199,25 @@ hashes before/after, runs ERC/DRC with nonzero exit on findings, checks topology
 then builds PDFs, native placement/component lists, draft Gerbers/drills,
 renders, source snapshot, and a SHA-256 manifest in ignored `fabrication/`.
 It does not upload to JLCPCB or claim its assembly preview has been approved.
+The audit also unions top-layer ground pads/traces/fills to check C9 isolation,
+screens the adjacent return vias and C25 placement, and checks L1's physical
+dot and the exact capacitor part in both board and schematic. All nine new
+checks fail on the original reviewed candidate and pass on the corrected one.
+The approved input addition adds exact part/board-net checks, a no-via-under-
+paste check for all new/moved electronic parts, and a top-only timing-route
+check. Three additional top-only path checks guard both U6 bypass capacitors
+and U5's input bypass. The old input-stage layout fails two of these three;
+the corrected layout passes all three. Current totals: 79 topology, 16 value,
+9 prior-review and 11 input-power
+checks; all pass. The pre-addition candidate fails the new input requirements.
 
 ```sh
 /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/3.9/bin/python3 \
   hardware/prepare_review.py
 ```
 
-An existing snapshot is never overwritten. Move it aside before regenerating.
+An existing snapshot is never overwritten. Preserve the reviewed baseline and
+use `--snapshot-name marking-20261105` for the current corrected files.
 `--references DIR` includes an optional locally downloaded manufacturer-document
 directory. No song files or FLOW discussion markdown is included.
 
@@ -185,6 +227,7 @@ Primary references (locally captured PDFs are included when available):
 - [Hardware design with RP2350](https://pip-assets.raspberrypi.com/categories/1214-rp2350/documents/RP-008280-DS-2-hardware-design-with-rp2350.pdf): regulator, integrated-flash boot, crystal, USB sections.
 - [R4-S1 native reference](https://pip.raspberrypi.com/documents/RP-010328-CA-RP2350A%20Minimal%20KiCAD.zip): source/hash/license in `README.md` and `REFERENCE_LICENSE.txt`; RP2350A without integrated flash, not a whole-board template.
 - [TPS25821](https://www.ti.com/lit/ds/symlink/tps25821.pdf): pinout, electrical limits, §8.2.1.1 and §10.
+- [TPS22953](https://www.ti.com/lit/ds/symlink/tps22953.pdf): input ramp, enable/sense/unused PG connections, disabled-state reverse blocking and DQC land/stencil dimensions.
 - [TLV755P](https://www.ti.com/lit/ds/symlink/tlv755p.pdf): DBV package, capacitors, thermal/layout sections.
 - [TPD2EUSB30](https://www.ti.com/lit/ds/symlink/tpd2eusb30.pdf), [BAT54S](https://www.diodes.com/datasheet/download/BAT54S.pdf), [BSS138](https://www.onsemi.com/download/data-sheet/pdf/bss138-d.pdf).
 - [USB4105](https://gct.co/files/drawings/usb4105.pdf), [SJ1-352XN](https://www.sameskydevices.com/product/resource/sj1-352xn.pdf), [JST PH](https://www.jst-mfg.com/product/pdf/eng/ePH.pdf), [PEC12R](https://www.bourns.com/docs/product-datasheets/pec12r.pdf).

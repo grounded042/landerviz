@@ -27,5 +27,16 @@ Upstream library sources:
 The other local footprints were built from their manufacturer land patterns:
 TI DSS0012B, Abracon AOTA-B201610, and Bourns PEC12R configuration 4. Their
 current source files preserve the board's silkscreen/ground-connection edits.
+Independent review corrected the Abracon L1 fabrication dot to the pad-1
+(`+1V1`) end, matching Raspberry Pi R4-S1. Pad numbering, land sizes and
+electrical routing are unchanged. The former pad-2/LX marking was wrong.
 Raspberry Pi reference-derived regulator placement is separately attributed
 in `REFERENCE_LICENSE.txt`.
+
+`LanderViz:TPS22953DQC` is a new project symbol drawn from TI's pin table, not
+a modified standard-library symbol. The physical PG output is open drain;
+its unused pin is typed passive solely to permit TI's required direct GND tie
+without a false conflict with the ground power flag. This tie is audited.
+No other output type or project ERC rule was changed. Its standard
+`Package_SON:WSON-10-1EP_2x3mm_P0.5mm_EP0.84x2.4mm` footprint is unmodified;
+the ground vias are outside the solder pad.

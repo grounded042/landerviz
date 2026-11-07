@@ -35,8 +35,8 @@
 		(layer "F.Fab")
 	)
 	(fp_circle
-		(center 0.65 -0.45)
-		(end 0.77 -0.45)
+		(center -0.65 -0.45)
+		(end -0.53 -0.45)
 		(stroke (width 0.1) (type solid))
 		(fill solid)
 		(layer "F.Fab")

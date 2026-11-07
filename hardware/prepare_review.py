@@ -35,8 +35,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kicad-cli", default="/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli")
     parser.add_argument("--references", type=Path, help="Optional directory of locally downloaded datasheets")
+    parser.add_argument("--snapshot-name", default="astra-review", help="New directory/archive name under fabrication/")
     args = parser.parse_args()
-    out = HW / "fabrication" / "astra-review"
+    if not args.snapshot_name or Path(args.snapshot_name).name != args.snapshot_name or args.snapshot_name in (".", ".."):
+        parser.error("--snapshot-name must be a single directory name")
+    out = HW / "fabrication" / args.snapshot_name
+    archive = HW / "fabrication" / f"landerviz-{args.snapshot_name}.zip"
+    if archive.exists():
+        raise SystemExit(f"Refusing to overwrite {archive}")
     if out.exists():
         raise SystemExit(f"{out} already exists; choose a new snapshot by moving it aside first.")
     out.mkdir(parents=True)
@@ -109,13 +115,21 @@ def main():
                 "kicad_version": version, "source_sha256": before,
                 "purchased_populated_positions": len(populated),
                 "assembly_rotation_status": "Native KiCad rotations; JLCPCB orientation preview not approved."}
-    (out / "START_HERE.md").write_text((HW / "ASTRA_REVIEW.md").read_text())
+    (out / "START_HERE.md").write_text(
+        f"# LanderViz review snapshot: {args.snapshot_name}\n\n"
+        "Review only; not a manufacturing release.\n\n"
+        "Start with source/hardware/REVIEW_RESOLUTION.md for current corrections "
+        "and open conditions, then source/hardware/REVIEW_NOTES.md. "
+        "The assembly questions are in source/hardware/ASSEMBLY_REVIEW_REQUEST.md.\n\n"
+        "Inspect schematics.pdf, board-layers.pdf, audit.json, erc.json, drc.json "
+        "and draft-manufacturing/. Native sources and optional datasheets are included. "
+        "manifest.json records source/artifact hashes and placement status.\n\n"
+        f"Populated purchased positions: {len(populated)}. Native rotations require "
+        "manufacturer preview approval. Passing geometry/connectivity checks does "
+        "not validate assembled transients, thermal behavior or solder yield.\n")
     manifest["artifact_sha256"] = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
         for p in sorted(out.rglob("*")) if p.is_file()}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    archive = HW / "fabrication" / "landerviz-astra-review.zip"
-    if archive.exists():
-        raise SystemExit(f"Refusing to overwrite {archive}")
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
         for p in sorted(out.rglob("*")):
             if p.is_file():
