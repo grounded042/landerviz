@@ -1,5 +1,7 @@
 .DS_Store
 .direnv/
+__pycache__/
+*.pyc
 /build/
 /build-*/
 /result
@@ -14,3 +16,4 @@
 *.lck
 *-backups/
 /hardware/fabrication/
+/hardware/carrier/placement-source.kicad_pro

@@ -1,0 +1,23 @@
+references,quantity,unit,item,specification,inventory_status,candidate_mpn,unit_cost_usd,notes
+U1,1,module,Pimoroni PGA2350,RP2350B A4 stepping,Purchase pending A4 confirmation,PIM722,11.95,Headers sold separately; previously checked module price; user will ensure A4 before module purchase
+J1 J2,2,module,USB-C breakout,Soldered 333011; verify delivered revision,Purchase,333011,2.20,No built-in CC resistors; headers separate; previously checked price
+J3,1,jack,Direct right-angle TRS audio jack,Three downward terminals; S ground T left R right,New part requested; purchase pending,SJ1-3533NG,1.69,DigiKey CP1-3533NG-ND; no mating header/socket; not five-pin SJ1-3535NG
+U2,1,module,BSS138 level converter,4 channels; 3V3 side and 5V side,Owned; row order user-confirmed 2026-11-07,,,Labelled side HV left LV right; both rows top-down 4 3 GND supply 2 1; 10.16mm row spacing; body approx 12.7x14.3mm
+J4,1,header,LCD connection,1x4 male straight 2.54mm pitch,Check owned header kit,,,Use existing female-ended LCD jumper cable
+C1,1,capacitor,Bulk electrolytic,470uF >=10V,Owned; user confirms fit 2026-11-07,,,Measured approx 1/4 inch; retain 8mm envelope; 3.5mm lead fit confirmed; lead fit confirmed by user 2026-11-07
+C2 C4,2,capacitor,Audio coupling electrolytic,10uF >=16V,Owned; user confirms fit 2026-11-07,,,Measured approx 3/16 inch; reported 50V rating sufficient; retain 6.3mm envelope; 2.5mm lead fit confirmed; lead fit confirmed by user 2026-11-07
+C3 C5,2,capacitor,Audio filter ceramic,2.2nF C0G 5% 50V; H5 formed leads at 5mm,Candidate selected; purchase pending,K222J15C0GF5TH5,0.59,DigiKey BC1050CT-ND cut tape; budget higher observed price; body 4.0x2.6mm max fits courtyard; approximate generic fabrication outline; not L2 2.5mm variant
+R1 R2,2,resistor,Input CC pull-down,5.1k 1% axial 0.25W,Check owned resistor kit,,,7.62mm lead pitch study
+R3 R4 R7 R8 R10 R11,6,resistor,Output CC pull-up and audio bias,22k 1% axial 0.25W,Check owned resistor kit,,,7.62mm lead pitch study
+R5 R6,2,resistor,PIO USB series,22 ohm 1% axial 0.25W,Check owned resistor kit,,,7.62mm lead pitch study
+R9 R12,2,resistor,Audio series filter,10k 1% axial 0.25W,Check owned resistor kit,,,7.62mm lead pitch study
+D1 D2 D3 D4,4,diode,Audio rail clamp,BAT85S axial DO-35,Candidate purchase,BAT85S-TR,0.50,Band marks cathode; DigiKey cut-tape BAT85SCT-ND
+SW1 SW2,2,switch,Boot and reset,6mm tactile; 6.5x4.5mm lead-centre pattern,Check inventory or candidate purchase,B3F-1000,0.35,Candidate matches study pattern; schematic still generic switch
+SW3,1,encoder,Same Sky rotary encoder with push,12 detents and pulses; 20mm 6mm flat metal shaft; vertical PCB pins,Selected replacement after Astra review; purchase pending,ACZ11BR1E-20FD1-12C,4.33,DigiKey 102-1760-ND; hand solder <=350C <=3s; dedicated ACZ11 footprint; see ENCODER.md; not generic EC11 or Bourns interchangeable
+R13,1,resistor,Status LED current limiting,1k 1% axial 0.25W,Check owned resistor kit,,,7.62mm lead pitch; driven from GP6
+D5,1,LED,Green status indicator,3mm through-hole; 2.54mm lead pitch,Authorized addition; purchase pending,WP710A10LZGCK,0.59,Pad 1 cathode to GND; pad 2 anode to R13; firmware port pending
+PGA_MALE,64,contact,PGA module male pins,2.54mm pitch; socket-mating length to confirm,Check owned header kit,,,Contact count not packaged strip quantity
+PGA_SOCKET,64,contact,Carrier PGA female sockets,2.54mm pitch; two 2x10 plus two 2x6 pieces,Owned; small-piece corner paper fit confirmed; long-strip match and cutting pending,,,One 2x40 can supply 32 kept columns plus four discarded cut columns; see socket-frame.svg; second strip stays intact; module mating depth not yet checked; published dimensions/paper fit accepted for ordering by user; full-frame/mating are assembly steps
+USB_MALE,16,contact,USB breakout male pins,2.54mm pitch; 8 per module,Check owned header kit,,,Do not duplicate if delivered with suitable pins
+USB_SOCKET,16,contact,Carrier USB breakout female sockets,1x8 per module; 2.54mm pitch,Check owned header kit,,,Height and support hardware pending
+LEVEL_SOCKET,12,contact,Carrier level converter sockets,2x 1x6; 2.54mm pitch; 10.16mm between rows,Check owned header kit,,,Row spacing from E/G breadboard fit; body orientation and existing male pins to confirm

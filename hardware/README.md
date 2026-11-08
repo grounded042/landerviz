@@ -1,5 +1,15 @@
 # LanderViz revision-A hardware
 
+**2026-11-07:** the reviewed [PGA2350 carrier](carrier/README.md) Rev A
+bare boards are ordered from OSH Park. The 90 × 75 mm two-layer design is
+frozen; see [order status](carrier/ORDER_STATUS.md),
+[manufacturing release](carrier/releases/rev-a/README.md) and
+[parts sourcing](carrier/SHOPPING.md). The processor purchase assumes A4
+silicon; user assembly and the PGA2350 firmware port remain ahead.
+Open [the carrier project](carrier/landerviz-carrier.kicad_pro) in KiCad.
+The existing `landerviz.kicad_*` files and historical sections below remain
+the preserved bare-RP2354A candidate, which was not ordered.
+
 This directory contains the KiCad 10 schematic and, after schematic approval,
 the printed-circuit-board layout for LanderViz revision A.
 
@@ -15,7 +25,9 @@ The pinned Nix package set marks KiCad broken on Apple Silicon, so KiCad is not
 added to the development shell until that package is usable. Open
 `landerviz.kicad_pro` with the installed KiCad application.
 
-Generated backups, lock files, and manufacturing outputs are ignored. Source
+Generated backups, lock files, and working manufacturing outputs are ignored.
+The exact ordered carrier Gerber ZIP and its manifest are preserved under
+`carrier/releases/rev-a/`. Source
 schematics, board files, symbol/footprint libraries, design rules, and reviewed
 fabrication settings belong in version control.
 
@@ -23,7 +35,8 @@ The project-local `sym-lib-table` and `fp-lib-table` deliberately name only the
 KiCad libraries used by the capture. They also make command-line checks and a
 fresh checkout independent of this Mac's global KiCad-library preferences.
 `landerviz.kicad_sym` contains the reviewed TPS25821 and TLV75533PDBV pin
-definitions. The schematic is ordinary KiCad source; opening or editing it
+definitions, RP2354A, and the approved TPS22953DQC input-switch definition.
+The schematic is ordinary KiCad source; opening or editing it
 does not run Python or install a Python package.
 
 ## Upstream electrical reference
@@ -268,7 +281,14 @@ USB and PIO-USB series resistors, and explicit no-connect flags on unused pins.
 The exact L1 inductor, Y1 crystal, reset/BOOTSEL switches, RP2354A, and ordinary
 passives now have manufacturer, JLCPCB/LCSC catalog, and footprint assignments.
 L1 uses a project-local footprint copied from Abracon's land pattern; its marked
-terminal is pad 2 on the RP2354 switch-node side. The Serial Wire Debug (SWD)
+terminal is **pad 1, the +1V1 output side**, matching Raspberry Pi's R4-S1
+reference. The fabrication dot was corrected after independent review; the
+assembler must verify the physical dot orientation, not just the placement
+rotation number. C6/C7/C9/C10 now specify the reference-design Murata
+`GRM155R60J475ME47D` (JLCPCB `C82453`) instead of the unqualified CCTC
+substitute. C9 has an independent ground via; the switching return uses two
+adjacent vias. See [`REVIEW_RESOLUTION.md`](REVIEW_RESOLUTION.md).
+The Serial Wire Debug (SWD)
 and rail test points are 2 mm exposed surface pads and require no purchased
 component.
 
@@ -286,12 +306,18 @@ The USB/power sheet is electrically captured and connected to the MCU sheet:
 - Each USB data pair has a TPD2EUSB30DRTR two-channel electrostatic-discharge
   (ESD) protector. ESD means a short high-voltage event such as a static shock.
 - A stocked 2 A-hold LUTE `1206L200/16NR` resettable polymer fuse protects the
-  input. It avoids the temperature-derating problem of using a nominal 1.5 A
-  part on a port that advertises 1.5 A; worst-case temperature still requires
-  review before the bill of materials is released.
-- The proven 470 microfarad reservoir is on the protected, always-powered side
-  of the TPS25821. Its switched output has 4.7 microfarads, below the
+  input. Its hold current falls to 1.42 A at 60°C, so it does not establish
+  a 1.5 A continuous port rating across temperature. Supported ambient/current
+  limits still require a release decision.
+- The proven 470 microfarad reservoir is on the protected input side
+  of the TPS25821, after the approved TPS22953 controlled-charging input
+  switch. Its keyboard-port output has 4.7 microfarads, below the
   controller's 10 microfarad limit.
+  C25 now sits beside J2 at (37.1,14.2) mm. U6 ramps the reservoir and every
+  existing powered branch; only 1 µF bypass and the enable circuit precede it.
+  Its estimated startup behavior still requires assembled-board validation.
+  See [`INPUT_POWER_PROPOSAL.md`](INPUT_POWER_PROPOSAL.md) for the approved
+  five-part circuit, enable threshold, ramp calculation and reverse-blocking limits.
 - A TLV75533PDBVR fixed-output, 500 mA low-dropout regulator creates the 3.3 V
   logic rail. The display receives a separately protected 5 V branch.
 - Labeled 5 V, 3.3 V, and ground test points are included.
@@ -396,3 +422,8 @@ candidate, checks, and unresolved electrical/assembly questions. Share
 ignored `fabrication/` directory. It uses installed KiCad and no downloaded
 Python dependencies, accesses no network, and checks that sources stay unchanged.
 Neither a clean automated report nor the generated files authorize an order.
+
+For the separate Gerber ZIP, bill of materials and placement CSV required by
+JLCPCB, see [`JLCPCB_ORDERING.md`](JLCPCB_ORDERING.md). `prepare_jlc.py` converts
+a checked snapshot using only Python's standard library, verifies file hashes
+and coordinate consistency, and leaves assembly rotations awaiting approval.

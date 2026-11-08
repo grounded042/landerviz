@@ -1,6 +1,16 @@
 # LanderViz PCB specification
 
-Status: schematic capture in progress with hardware-accepted FLOW v3 and
+**2026-11-07 direction update:** Carrier Rev A bare boards are ordered from
+OSH Park: 90 × 75 mm, two layers, hand-solderable parts and a PGA2350 module.
+See [order status](hardware/carrier/ORDER_STATUS.md), the
+[carrier design](hardware/carrier/README.md) and its
+[manufacturing release](hardware/carrier/releases/rev-a/README.md).
+The user will ensure A4 silicon before purchasing the processor module.
+The bare-RP2354A candidate specified below is preserved and was not ordered;
+its historical frozen requirements do not override the accepted
+[carrier decisions](hardware/CARRIER.md).
+
+Historical bare-chip status: schematic capture in progress with hardware-accepted FLOW v3 and
 frozen revision-A compute, display, and USB/power architecture, 2026-10-29.
 
 LanderViz is a standalone audio visualizer whose revision-A printed circuit
@@ -100,6 +110,12 @@ reference design and checklist. The minimum design includes:
 - Serial Wire Debug (SWD) pads plus 5 V, 3.3 V, and ground test points.
 
 SWD is the processor's programming and debug interface.
+The regulator capacitors C6/C7/C9/C10 use Murata `GRM155R60J475ME47D`
+(JLCPCB `C82453`), matching the official reference's regulator capacitor
+selection. Do not substitute another nominal 4.7 µF part without qualifying
+its behavior at operating voltage. L1's physical orientation dot faces pad 1,
+the +1V1 output end. C9 requires its own ground return; the switching-current
+return uses two adjacent vias into the ground plane.
 Revision A adds no external flash or pseudo-static random-access memory
 (PSRAM): the integrated 2 MB flash is the program store, and additional memory
 is outside the frozen scope. At bill-of-materials (BOM) release, verify the
@@ -237,18 +253,19 @@ The intended path is:
 ```text
 upstream USB-C VBUS
     -> input resettable overcurrent protection
+    -> TPS22953 controlled-charging switch (small local input bypass)
     -> protected 5 V rail and 470 uF bulk reservoir
     -> TPS25821 attachment-controlled, current-limited VBUS path
     -> Moonlander USB-C VBUS
     -> less than 10 uF local output bypass near the downstream connector
 
 upstream USB-C VBUS
-    -> protected 5 V rail
+    -> same input fuse and TPS22953 -> protected 5 V rail
     -> TLV75533PDBVR 3.3 V linear regulator
     -> RP2354A and 3.3 V logic
 
 upstream USB-C VBUS
-    -> protected 5 V rail
+    -> same input fuse and TPS22953 -> protected 5 V rail
     -> separately protected 5 V display output
 ```
 
@@ -267,6 +284,16 @@ guidance by using less than 10 microfarads directly on its switched output.
 The upstream reservoir still supports downstream load steps through the
 switch's low-resistance power path. Never power the Moonlander from a second
 supply at the same time.
+
+The user approved controlled input charging after independent hardware review.
+U6 is a TPS22953DQCR (`C471046`) before all existing 5 V loads. Its fused
+input has 1 µF local bypass; the 470 µF reservoir remains on its ramped output,
+before the separate TPS25821 keyboard-port switch. A 10 nF / 50 V timing
+capacitor and 100k/20k enable divider give an estimated 18 ms full ramp and
+4.2 V nominal enable threshold. This controls voltage rise, not a hard current
+limit. Reverse blocking applies when U6 is disabled, not continuously while on.
+No firmware enable or new GPIO assignment is involved. Details and limits are
+in [`hardware/INPUT_POWER_PROPOSAL.md`](hardware/INPUT_POWER_PROPOSAL.md).
 
 The 3.3 V rail uses the fixed-output TLV75533PDBVR 500 mA low-dropout linear
 regulator. The Moonlander and LCD remain on 5 V, so this regulator supplies
@@ -624,6 +651,13 @@ but does not guarantee future availability.
 Electrical-rules check (ERC) and design-rules check (DRC) are the
 computer-aided design tool's automated schematic and layout checks. They are
 necessary but cannot prove the board will work. Before fabrication:
+
+Independent review corrections and remaining release conditions are tracked
+in [`hardware/REVIEW_RESOLUTION.md`](hardware/REVIEW_RESOLUTION.md).
+The uncontrolled-reservoir connection was replaced with the approved TPS22953
+ramp circuit. Its actual startup waveform still needs assembled-board
+validation. The exposed-pad soldering process remains unapproved; neither
+startup behavior nor assembly quality is established by zero ERC/DRC findings.
 
 1. Commit and push the known-good breadboard milestone and record its commit.
 2. Verify J4's physical pin-one orientation against its final footprint,

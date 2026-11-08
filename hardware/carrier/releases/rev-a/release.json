@@ -1,0 +1,28 @@
+{
+  "status": "Ordered from OSH Park by user on 2026-11-07; bare-board prototype",
+  "board_revision": "Carrier Rev A",
+  "board_source_sha256": "73a8fa9c8e2926b336ab9a96fe3c684fc772ab46f2bac94f24df9b723bde404f",
+  "manufacturing_zip_sha256": "6efba88ea4c479ada24e96dabca6f6cfd9fdf925c13644ab10652f613084da2b",
+  "identical_to_reviewed_gerber_zip": "hardware/fabrication/carrier-followup-20261107/landerviz-carrier-QUOTE-ONLY-gerbers.zip",
+  "review_file": "ASTRA_CARRIER_FOLLOWUP.md",
+  "review_sha256": "7824b8f9d9d542fce49b991b863d7aeac2de48dd2441c4e604f94d781b282b3b",
+  "settings": {
+    "outline_mm": [
+      90,
+      75
+    ],
+    "copper_layers": 2,
+    "thickness_mm": 1.6,
+    "material": "FR-4",
+    "copper_oz": 1,
+    "assembly": false,
+    "stencil": false
+  },
+  "plated_drill_features": 182,
+  "unplated_holes": 8,
+  "plated_slots": 0,
+  "same_manufacturing_files_for": "OSH Park or JLCPCB bare-board pricing; check vendor preview/settings",
+  "reference_snapshot": "hardware/fabrication/carrier-followup-20261107",
+  "board_source": "hardware/carrier/landerviz-carrier.kicad_pcb",
+  "review_resolution": "hardware/carrier/REVIEW_RESOLUTION.md"
+}
